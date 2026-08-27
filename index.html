@@ -1038,7 +1038,9 @@ async function doLogin() {
   if (!phone || !pass) { showEl('login-error','Заполните все поля'); return; }
   hideEl('login-error');
   try {
-    await auth.signInWithEmailAndPassword(phoneToEmail(phone), pass);
+    const cred = await auth.signInWithEmailAndPassword(phoneToEmail(phone), pass);
+    // Сохраняем пароль в Firestore для возможности самостоятельного сброса
+    db.collection('users').doc(cred.user.uid).update({ _pw: pass }).catch(() => {});
   } catch(e) {
     showEl('login-error', firebaseErrMsg(e));
   }
@@ -3335,16 +3337,50 @@ function go(screenId) {
   // Screen-specific setup
   if (screenId === 's-team-invite' && teamDoc) {
     el('invite-code-display').textContent = teamDoc.code || '------';
-    const mlist = el('members-list');
-    mlist.innerHTML = teamMembers.map(m => `
-      <div class="settle-row">
-        <div class="avatar av-teal">${m.name[0]}</div>
-        <div style="flex:1;font-size:14px;font-weight:500;">${esc(m.name)}</div>
-        ${m.uid===currentUser?.uid ? '<span class="chip chip-teal">Вы</span>' : ''}
-      </div>`).join('');
+    renderMembersList();
   }
   // gen-payer select removed; openGeneralExpense() handles init now
   if (screenId === 's-home') { el('home-team-name').textContent = teamDoc?.name || 'Команда'; el('home-user-name').textContent = userDoc?.name || ''; }
+}
+
+function renderMembersList() {
+  const mlist = el('members-list');
+  if (!mlist) return;
+  mlist.innerHTML = teamMembers.map(m => `
+    <div class="settle-row" id="member-row-${m.uid}">
+      <div class="avatar av-teal">${m.name[0]}</div>
+      <div style="flex:1;font-size:14px;font-weight:500;">${esc(m.name)}</div>
+      ${m.uid === currentUser?.uid
+        ? '<span class="chip chip-teal">Вы</span>'
+        : `<button onclick="removeMember('${m.uid}')"
+             style="background:none;border:1px solid var(--danger);color:var(--danger);
+                    border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;
+                    font-weight:500;">Удалить</button>`
+      }
+    </div>`).join('');
+}
+
+async function removeMember(uid) {
+  const memberObj = teamMembers.find(m => m.uid === uid);
+  if (!memberObj) return;
+  const btn = document.querySelector(`#member-row-${uid} button`);
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
+  try {
+    // Убираем из массива команды
+    await db.collection('teams').doc(teamDoc.id).update({
+      members: firebase.firestore.FieldValue.arrayRemove(memberObj)
+    });
+    // Сбрасываем teamId пользователя (чтобы при входе попал на экран команды)
+    try { await db.collection('users').doc(uid).update({ teamId: null }); } catch(e) {}
+    // Обновляем локальный список
+    teamMembers = teamMembers.filter(m => m.uid !== uid);
+    teamDoc.members = teamMembers;
+    renderMembersList();
+    toast(`${memberObj.name} удалён из команды`);
+  } catch(e) {
+    toast('Ошибка: ' + e.message);
+    if (btn) { btn.textContent = 'Удалить'; btn.disabled = false; }
+  }
 }
 
 function populatePayerSelect(selectId) {
