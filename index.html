@@ -2992,10 +2992,13 @@ function renderPendingConfirmation(e) {
         </div>`;
         return;
       }
+      const halfBlocked = othersHaveHalfForItem(e, idx);
       const selStyle = sel==='full' ? 'background:var(--success);color:#fff;border-color:var(--success);'
                       : sel==='half' ? 'background:var(--warn);color:#fff;border-color:var(--warn);'
                       : 'background:var(--surface2);color:var(--text2);border-color:var(--border);';
-      const selLabel = sel==='full' ? '🟢 Полностью' : sel==='half' ? '🟡 Делил' : '⬜ Не ел';
+      const selLabel = sel==='full' ? '🟢 Полностью'
+                     : sel==='half' ? '🟡 Делил'
+                     : halfBlocked ? '⬜ Не ел (→ Делил)' : '⬜ Не ел';
 
       // Кто из других уже выбрал это блюдо
       const otherChips = [];
@@ -3112,10 +3115,24 @@ async function removeParticipantFromPending(expenseId, uid) {
   }
 }
 
+function othersHaveHalfForItem(e, idx) {
+  return (e.participants||[]).some(p => {
+    if (p.uid === currentUser.uid) return false;
+    return ((e.selections||{})[p.uid]?.dishSel||{})[idx] === 'half';
+  });
+}
+
 function toggleMyItem(idx) {
   const e = window._pendingExpenseData;
   const cur = window._myConfirmSel[idx] || 'none';
-  const next = cur === 'none' ? 'full' : cur === 'full' ? 'half' : 'none';
+  // Если кто-то из подтверждённых взял "½" — нельзя взять "целую"
+  const halfBlocked = othersHaveHalfForItem(e, idx);
+  let next;
+  if (halfBlocked) {
+    next = cur === 'none' ? 'half' : 'none'; // только none ↔ half
+  } else {
+    next = cur === 'none' ? 'full' : cur === 'full' ? 'half' : 'none';
+  }
   window._myConfirmSel[idx] = next;
 
   const row = el('my-item-' + idx);
@@ -3128,7 +3145,7 @@ function toggleMyItem(idx) {
     lbl.textContent = '🟡 Делил';
   } else {
     row.style.cssText = row.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+;/, 'background:var(--surface2);color:var(--text2);border-color:var(--border);');
-    lbl.textContent = '⬜ Не ел';
+    lbl.textContent = halfBlocked ? '⬜ Не ел (нажать → Делил)' : '⬜ Не ел';
   }
   recalcMyConfirmTotal();
 }
@@ -3144,32 +3161,43 @@ function recalcMyConfirmTotal() {
     const mySel = window._myConfirmSel[idx] || 'none';
     if (mySel === 'none') return;
     // Count effective portions including confirmed others + my current selection
-    let eff = mySel === 'full' ? 1 : 0.5;
+    const myWeight = mySel === 'full' ? 1 : 0.5;
+    let eff = myWeight;
     participants.forEach(p => {
       if (p.uid === currentUser.uid) return;
       const pSel = ((e.selections||{})[p.uid]?.dishSel||{})[idx] || 'none';
       if (pSel === 'full') eff += 1;
       else if (pSel === 'half') eff += 0.5;
     });
-    myTotal += ((mySel === 'full' ? 1 : 0.5) / eff) * itemTotal;
+    if (eff >= 1) {
+      myTotal += (myWeight / eff) * itemTotal;
+    } else {
+      // Частичная заявка — мой вклад + моя доля невостребованного остатка
+      myTotal += myWeight * itemTotal + (1 - eff) * itemTotal / participants.length;
+    }
   });
   const el2 = el('my-confirm-total');
   if (el2) el2.textContent = fmt(Math.round(myTotal)) + ' ₸';
 }
 
-// Проверяет есть ли нераспределённые блюда (никто не выбрал)
-function hasUnallocatedItems(data) {
+// Проверяет есть ли нераспределённые блюда (никто не выбрал, или кто-то взял половину без пары)
+function hasNeedsReview(data) {
   return (data.items||[]).some((item, idx) => {
     if (item.shared) return false;
-    return !(data.participants||[]).some(p => {
+    let eff = 0;
+    (data.participants||[]).forEach(p => {
       const s = ((data.selections||{})[p.uid]?.dishSel||{})[idx];
-      return s === 'full' || s === 'half';
+      if (s === 'full') eff += 1;
+      else if (s === 'half') eff += 0.5;
     });
+    return eff < 1; // eff=0: никто не выбрал; 0<eff<1: частично (нет пары для половинки)
   });
 }
+// Backward compat alias
+function hasUnallocatedItems(data) { return hasNeedsReview(data); }
 
 async function finalizeExpense(expenseId, data) {
-  const unallocated = hasUnallocatedItems(data);
+  const unallocated = hasNeedsReview(data);
   if (unallocated) {
     // Есть нераспределённые — ждём решения создателя
     await db.collection('expenses').doc(expenseId).update({ status: 'pending_creator_review' });
@@ -3237,17 +3265,43 @@ async function approveEqualSplit(expenseId) {
   } catch(err) { toast('Ошибка: ' + err.message); }
 }
 
+// Назначить невостребованную половину блюда на конкретного участника
+async function assignUnclaimed(expenseId, itemIdx, uid) {
+  try {
+    // Устанавливаем 'half' для этого участника по данному блюду
+    const updateData = {};
+    updateData[`selections.${uid}.dishSel.${itemIdx}`] = 'half';
+    await db.collection('expenses').doc(expenseId).update(updateData);
+    toast('Назначено ✓');
+    // Re-fetch and check if still needs review
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const data2 = { id: snap.id, ...snap.data() };
+    if (hasNeedsReview(data2)) {
+      renderExpenseDetail(data2);
+    } else {
+      await approveEqualSplit(expenseId);
+    }
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
 function renderCreatorReview(e) {
   const items = e.items || [];
   const participants = e.participants || [];
   const isCreator = e.createdBy === currentUser.uid;
-  const unallocatedItems = items.filter((item, idx) => {
-    if (item.shared) return false;
-    return !participants.some(p => {
+
+  // Classify problem items: eff=0 (unallocated) or 0<eff<1 (half-claimed, no pair)
+  const problemItems = items.map((item, idx) => {
+    if (item.shared) return null;
+    let eff = 0;
+    const claimers = { full: [], half: [] };
+    participants.forEach(p => {
       const s = ((e.selections||{})[p.uid]?.dishSel||{})[idx];
-      return s === 'full' || s === 'half';
+      if (s === 'full') { eff += 1; claimers.full.push(p); }
+      else if (s === 'half') { eff += 0.5; claimers.half.push(p); }
     });
-  });
+    if (eff >= 1) return null; // OK
+    return { item, idx, eff, claimers };
+  }).filter(Boolean);
 
   el('detail-title').textContent = 'Нераспределённые блюда';
   let html = '';
@@ -3256,37 +3310,59 @@ function renderCreatorReview(e) {
     html += `<div class="card" style="text-align:center;padding:24px 16px;">
       <div style="font-size:48px;margin-bottom:12px;">⏳</div>
       <div style="font-size:17px;font-weight:700;margin-bottom:8px;">Все подтвердили!</div>
-      <div style="font-size:14px;color:var(--text2);line-height:1.6;">Создатель чека решает как разделить<br>блюда, которые никто не выбрал</div>
+      <div style="font-size:14px;color:var(--text2);line-height:1.6;">Создатель чека решает как разделить<br>блюда, которые не распределены до конца</div>
     </div>`;
     html += `<button class="btn btn-secondary" onclick="go('s-home')">На главную</button>`;
     el('expense-detail-content').innerHTML = html;
     return;
   }
 
-  // Только для создателя
+  // Only for creator
   html += `<div style="font-size:14px;color:var(--text2);margin-bottom:16px;line-height:1.5;">
-    Все участники выбрали свои блюда. Эти блюда никто не выбрал — решите как их разделить:
+    Все участники выбрали блюда. Остались нераспределённые позиции — решите как их разделить:
   </div>`;
 
-  html += `<div class="card">`;
-  unallocatedItems.forEach(item => {
+  problemItems.forEach(({ item, idx, eff, claimers }) => {
     const itemTotal = (item.qty||1) * (item.price||0);
     const perHead = Math.round(itemTotal / participants.length);
-    html += `<div style="background:var(--warn-light);border:1px solid var(--warn);border-radius:10px;padding:12px;margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:14px;font-weight:700;">⚠️ ${esc(item.name)}</span>
-        <span style="font-size:14px;font-weight:700;color:var(--warn);">${fmt(itemTotal)} ₸</span>
-      </div>
-      <div style="font-size:12px;color:var(--text2);margin-top:4px;">Никто не выбрал это блюдо</div>
-      <div style="font-size:13px;color:var(--warn);font-weight:600;margin-top:4px;">÷ ${fmt(perHead)} ₸ × ${participants.length} чел. при делении поровну</div>
+    const isUnallocated = eff === 0;
+    const unclaimedAmt = Math.round((1 - eff) * itemTotal);
+    const unclaimedPerHead = Math.round(unclaimedAmt / participants.length);
+
+    html += `<div style="background:var(--warn-light);border:1px solid var(--warn);border-radius:12px;padding:14px;margin-bottom:12px;">`;
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-size:14px;font-weight:700;">⚠️ ${esc(item.name)}</span>
+      <span style="font-size:14px;font-weight:700;color:var(--warn);">${fmt(itemTotal)} ₸</span>
     </div>`;
+
+    if (isUnallocated) {
+      html += `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Никто не выбрал это блюдо</div>`;
+      html += `<div style="font-size:12px;color:var(--warn);font-weight:600;margin-bottom:8px;">При делении поровну: ${fmt(perHead)} ₸ × ${participants.length} чел.</div>`;
+    } else {
+      // Half-claimed
+      const halfNames = claimers.half.map(p => `<b>${esc(p.name.split(' ')[0])}</b>`).join(', ');
+      html += `<div style="font-size:12px;color:var(--text2);margin-bottom:4px;">Взяли половину: ${halfNames}</div>`;
+      html += `<div style="font-size:12px;color:var(--warn);font-weight:600;margin-bottom:8px;">Остаток ${fmt(unclaimedAmt)} ₸ не распределён</div>`;
+      html += `<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Назначить остаток на:</div>`;
+      html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;">`;
+      participants.forEach(p => {
+        html += `<button onclick="assignUnclaimed('${e.id}',${idx},'${p.uid}')"
+          style="background:var(--surface);border:1px solid var(--accent);color:var(--accent);
+                 border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">
+          ${esc(p.name.split(' ')[0])}
+        </button>`;
+      });
+      html += `</div>`;
+      html += `<div style="font-size:11px;color:var(--text3);">Или нажмите «Поровну» ниже — остаток (${fmt(unclaimedPerHead)} ₸/чел.) распределится на всех</div>`;
+    }
+
+    html += `</div>`;
   });
-  html += `</div>`;
 
   html += `<button class="btn btn-primary" onclick="approveEqualSplit('${e.id}')" style="margin-bottom:10px;">
-    ÷ Разделить поровну на всех
+    ÷ Разделить всё поровну
   </button>`;
-  html += `<div style="font-size:12px;color:var(--text3);text-align:center;">Нажмите — и итоги сразу появятся у всех участников</div>`;
+  html += `<div style="font-size:12px;color:var(--text3);text-align:center;margin-bottom:8px;">Нераспределённый остаток поделится между всеми участниками поровну</div>`;
 
   el('expense-detail-content').innerHTML = html;
 }
@@ -3322,6 +3398,20 @@ function computeFinalShares(e) {
       participants.forEach(p => { newSelections[p.uid].myShare += sharePerPerson; });
       return;
     }
+    if (eff < 1) {
+      // Partially claimed (e.g. one person said "half", nobody else)
+      // Unclaimed portion split equally among ALL; claimed portion goes to claimers
+      const unclaimedTotal = (1 - eff) * itemTotal;
+      participants.forEach(p => { newSelections[p.uid].myShare += unclaimedTotal / participants.length; });
+      participants.forEach(p => {
+        const sel = ((e.selections||{})[p.uid]?.dishSel || {})[idx] || 'none';
+        if (sel === 'none') return;
+        // When eff<1 only 'half' is possible (full would make eff≥1)
+        newSelections[p.uid].myShare += 0.5 * itemTotal;
+      });
+      return;
+    }
+    // eff >= 1 — normal proportional allocation
     participants.forEach(p => {
       const sel = ((e.selections||{})[p.uid]?.dishSel || {})[idx] || 'none';
       if (sel === 'none') return;
