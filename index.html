@@ -1265,6 +1265,7 @@ function expenseItemHTML(e) {
   const dt = e.createdAt ? fmtDate(e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt)) : '';
   const mySelection = (e.selections||{})[currentUser.uid];
   const isPending = e.status === 'pending_confirmation';
+  const isCreatorReview = e.status === 'pending_creator_review';
   const myUnconfirmed = isPending && mySelection && !mySelection.confirmed;
   const confirmedCount = isPending ? Object.values(e.selections||{}).filter(s => s.confirmed).length : 0;
   const totalCount = (e.participants||[]).length;
@@ -1276,6 +1277,11 @@ function expenseItemHTML(e) {
     } else {
       amtHtml = `<span style="font-size:12px;color:var(--warn);background:var(--warn-light);padding:3px 8px;border-radius:99px;">⏳ ${confirmedCount}/${totalCount}</span>`;
     }
+  } else if (isCreatorReview) {
+    const isCreator = e.createdBy === currentUser.uid;
+    amtHtml = isCreator
+      ? `<span style="font-size:12px;font-weight:700;color:var(--danger);background:var(--danger-light);padding:3px 8px;border-radius:99px;">⚠️ Ваш выбор</span>`
+      : `<span style="font-size:12px;color:var(--warn);background:var(--warn-light);padding:3px 8px;border-radius:99px;">⚠️ Ждём</span>`;
   } else if (mySelection) {
     const share = mySelection.myShare || 0;
     const color = e.payerId === currentUser.uid ? 'var(--success)' : 'var(--danger)';
@@ -2555,13 +2561,28 @@ function renderSettlement(expenseData, selections, participants, isPending) {
           if (pSel === 'full') choosers.push(`<span style="display:inline-block;background:var(--success);color:#fff;border-radius:99px;padding:1px 7px;font-size:11px;font-weight:600;margin:2px 2px 0 0;">🟢 ${esc(p.name)}</span>`);
           else if (pSel === 'half') choosers.push(`<span style="display:inline-block;background:var(--warn);color:#fff;border-radius:99px;padding:1px 7px;font-size:11px;font-weight:600;margin:2px 2px 0 0;">🟡 ${esc(p.name)} ½</span>`);
         });
-        html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
-          <div style="display:flex;justify-content:space-between;">
-            <span style="font-size:13px;font-weight:600;">${esc(item.name)}</span>
-            <span style="font-size:13px;color:var(--text2);">${fmt(itemTotal)} ₸</span>
-          </div>
-          <div style="margin-top:4px;">${choosers.length ? choosers.join('') : '<span style="font-size:11px;color:var(--text3);">никто не выбрал — поровну</span>'}</div>
-        </div>`;
+        const perHead = Math.round(itemTotal / (participants||[]).length);
+        if (choosers.length === 0) {
+          // Нераспределённое блюдо — подсвечиваем явно
+          html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="background:var(--warn-light);border:1px solid var(--warn);border-radius:10px;padding:10px 12px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:13px;font-weight:700;">⚠️ ${esc(item.name)}</span>
+                <span style="font-size:13px;font-weight:700;color:var(--warn);">${fmt(itemTotal)} ₸</span>
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">Никто не выбрал это блюдо</div>
+              <div style="font-size:12px;color:var(--warn);font-weight:600;margin-top:4px;">÷ Разделено поровну: ${fmt(perHead)} ₸ × ${(participants||[]).length} чел.</div>
+            </div>
+          </div>`;
+        } else {
+          html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;">
+              <span style="font-size:13px;font-weight:600;">${esc(item.name)}</span>
+              <span style="font-size:13px;color:var(--text2);">${fmt(itemTotal)} ₸</span>
+            </div>
+            <div style="margin-top:4px;">${choosers.join('')}</div>
+          </div>`;
+        }
       });
       html += '</div>';
     }
@@ -2616,7 +2637,7 @@ async function openExpenseDetail(id) {
     renderExpenseDetail(activeExpenseData);
 
     // If pending — subscribe to live updates so everyone sees changes in real-time
-    if (activeExpenseData.status === 'pending_confirmation') {
+    if (activeExpenseData.status === 'pending_confirmation' || activeExpenseData.status === 'pending_creator_review') {
       _expenseDetailUnsub = db.collection('expenses').doc(id).onSnapshot(snap2 => {
         if (!snap2.exists) return;
         const updated = { id: snap2.id, ...snap2.data() };
@@ -2633,6 +2654,10 @@ async function openExpenseDetail(id) {
         // Re-render pending view (live updates of who confirmed what)
         if (updated.status === 'pending_confirmation' && currentScreen() === 's-expense-detail') {
           renderPendingConfirmation(updated);
+        }
+        // Creator review: show review screen to all
+        if (updated.status === 'pending_creator_review' && currentScreen() === 's-expense-detail') {
+          renderCreatorReview(updated);
         }
       });
     }
@@ -2680,6 +2705,12 @@ function renderExpenseDetail(e) {
   // ── PENDING CONFIRMATION BRANCH ──
   if (e.status === 'pending_confirmation') {
     renderPendingConfirmation(e);
+    return;
+  }
+
+  // ── CREATOR REVIEW BRANCH ──
+  if (e.status === 'pending_creator_review') {
+    renderCreatorReview(e);
     return;
   }
 
@@ -3071,12 +3102,7 @@ async function removeParticipantFromPending(expenseId, uid) {
 
     if (allConfirmed) {
       if (_expenseDetailUnsub) { _expenseDetailUnsub(); _expenseDetailUnsub = null; }
-      const newSelections = computeFinalShares(updated);
-      await db.collection('expenses').doc(expenseId).update({ selections: newSelections, status: 'open' });
-      const finalSnap = await db.collection('expenses').doc(expenseId).get();
-      const finalData = { id: finalSnap.id, ...finalSnap.data() };
-      renderSettlement(finalData, finalData.selections || {}, remaining, false);
-      go('s-settlement');
+      await finalizeExpense(expenseId, updated);
     } else {
       toast(`${participantObj.name} убран из расхода`);
       renderPendingConfirmation(updated);
@@ -3131,6 +3157,43 @@ function recalcMyConfirmTotal() {
   if (el2) el2.textContent = fmt(Math.round(myTotal)) + ' ₸';
 }
 
+// Проверяет есть ли нераспределённые блюда (никто не выбрал)
+function hasUnallocatedItems(data) {
+  return (data.items||[]).some((item, idx) => {
+    if (item.shared) return false;
+    return !(data.participants||[]).some(p => {
+      const s = ((data.selections||{})[p.uid]?.dishSel||{})[idx];
+      return s === 'full' || s === 'half';
+    });
+  });
+}
+
+async function finalizeExpense(expenseId, data) {
+  const unallocated = hasUnallocatedItems(data);
+  if (unallocated) {
+    // Есть нераспределённые — ждём решения создателя
+    await db.collection('expenses').doc(expenseId).update({ status: 'pending_creator_review' });
+    await addNotif(`Все подтвердили «${data.desc}»! Создатель должен разделить нераспределённые блюда.`, 'expense');
+    if (data.createdBy === currentUser.uid) {
+      // Я создатель — сразу показываю экран решения
+      const snap2 = await db.collection('expenses').doc(expenseId).get();
+      renderExpenseDetail({ id: snap2.id, ...snap2.data() });
+    } else {
+      toast('Все подтвердили ✓ Ждём решения создателя по нераспределённым блюдам');
+      go('s-home');
+    }
+  } else {
+    // Всё распределено — считаем итоги
+    const newSelections = computeFinalShares(data);
+    await db.collection('expenses').doc(expenseId).update({ selections: newSelections, status: 'open' });
+    await addNotif(`Все подтвердили расход «${data.desc}» — итоги готовы!`, 'expense');
+    const participants = data.participants || [];
+    el('settlement-desc').textContent = data.desc || '';
+    renderSettlement({ ...data, selections: newSelections }, newSelections, participants, false);
+    go('s-settlement');
+  }
+}
+
 async function confirmMyItems() {
   const expenseId = window._pendingExpenseId;
   const e = window._pendingExpenseData;
@@ -3139,30 +3202,18 @@ async function confirmMyItems() {
   const myDishSel = window._myConfirmSel || {};
 
   try {
-    // Save my confirmation to Firestore
     const updateData = {};
     updateData[`selections.${currentUser.uid}.dishSel`] = myDishSel;
     updateData[`selections.${currentUser.uid}.confirmed`] = true;
     await db.collection('expenses').doc(expenseId).update(updateData);
 
-    // Re-fetch expense to check if all confirmed
     const snap = await db.collection('expenses').doc(expenseId).get();
     const data = { id: snap.id, ...snap.data() };
     const allConfirmed = Object.values(data.selections||{}).every(s => s.confirmed);
 
     if (allConfirmed) {
-      // Compute final shares for everyone
-      const newSelections = computeFinalShares(data);
-      await db.collection('expenses').doc(expenseId).update({
-        selections: newSelections,
-        status: 'open'
-      });
-      await addNotif(`Все подтвердили расход «${data.desc}» — итоги готовы!`, 'expense');
-      // Show final settlement
-      const participants = data.participants || [];
-      el('settlement-desc').textContent = data.desc || '';
-      renderSettlement({ ...data, selections: newSelections }, newSelections, participants, false);
-      go('s-settlement');
+      if (_expenseDetailUnsub) { _expenseDetailUnsub(); _expenseDetailUnsub = null; }
+      await finalizeExpense(expenseId, data);
     } else {
       const confirmedCount = Object.values(data.selections||{}).filter(s => s.confirmed).length;
       const totalCount = (data.participants||[]).length;
@@ -3170,6 +3221,74 @@ async function confirmMyItems() {
       go('s-home');
     }
   } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
+async function approveEqualSplit(expenseId) {
+  try {
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const data = { id: snap.id, ...snap.data() };
+    const newSelections = computeFinalShares(data);
+    await db.collection('expenses').doc(expenseId).update({ selections: newSelections, status: 'open' });
+    await addNotif(`Расход «${data.desc}» — итоги готовы!`, 'expense');
+    const participants = data.participants || [];
+    el('settlement-desc').textContent = data.desc || '';
+    renderSettlement({ ...data, selections: newSelections }, newSelections, participants, false);
+    go('s-settlement');
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
+function renderCreatorReview(e) {
+  const items = e.items || [];
+  const participants = e.participants || [];
+  const isCreator = e.createdBy === currentUser.uid;
+  const unallocatedItems = items.filter((item, idx) => {
+    if (item.shared) return false;
+    return !participants.some(p => {
+      const s = ((e.selections||{})[p.uid]?.dishSel||{})[idx];
+      return s === 'full' || s === 'half';
+    });
+  });
+
+  el('detail-title').textContent = 'Нераспределённые блюда';
+  let html = '';
+
+  if (!isCreator) {
+    html += `<div class="card" style="text-align:center;padding:24px 16px;">
+      <div style="font-size:48px;margin-bottom:12px;">⏳</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px;">Все подтвердили!</div>
+      <div style="font-size:14px;color:var(--text2);line-height:1.6;">Создатель чека решает как разделить<br>блюда, которые никто не выбрал</div>
+    </div>`;
+    html += `<button class="btn btn-secondary" onclick="go('s-home')">На главную</button>`;
+    el('expense-detail-content').innerHTML = html;
+    return;
+  }
+
+  // Только для создателя
+  html += `<div style="font-size:14px;color:var(--text2);margin-bottom:16px;line-height:1.5;">
+    Все участники выбрали свои блюда. Эти блюда никто не выбрал — решите как их разделить:
+  </div>`;
+
+  html += `<div class="card">`;
+  unallocatedItems.forEach(item => {
+    const itemTotal = (item.qty||1) * (item.price||0);
+    const perHead = Math.round(itemTotal / participants.length);
+    html += `<div style="background:var(--warn-light);border:1px solid var(--warn);border-radius:10px;padding:12px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;font-weight:700;">⚠️ ${esc(item.name)}</span>
+        <span style="font-size:14px;font-weight:700;color:var(--warn);">${fmt(itemTotal)} ₸</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px;">Никто не выбрал это блюдо</div>
+      <div style="font-size:13px;color:var(--warn);font-weight:600;margin-top:4px;">÷ ${fmt(perHead)} ₸ × ${participants.length} чел. при делении поровну</div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  html += `<button class="btn btn-primary" onclick="approveEqualSplit('${e.id}')" style="margin-bottom:10px;">
+    ÷ Разделить поровну на всех
+  </button>`;
+  html += `<div style="font-size:12px;color:var(--text3);text-align:center;">Нажмите — и итоги сразу появятся у всех участников</div>`;
+
+  el('expense-detail-content').innerHTML = html;
 }
 
 function computeFinalShares(e) {
