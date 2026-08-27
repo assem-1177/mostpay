@@ -2982,7 +2982,15 @@ function renderPendingConfirmation(e) {
         <div style="flex:1;font-size:14px;font-weight:${isMe?'700':'400'};">${esc(p.name)}${isMe?' (Вы)':''}</div>
         ${confirmed
           ? `<span style="font-size:13px;color:var(--success);font-weight:700;">✓ подтвердил</span>`
-          : `<span style="font-size:12px;color:var(--text3);">⏳ не ответил</span>`}
+          : isMe
+            ? `<span style="font-size:12px;color:var(--text3);">⏳ не ответил</span>`
+            : `<span style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:12px;color:var(--text3);">⏳ не ответил</span>
+                <button onclick="removeParticipantFromPending('${e.id}','${p.uid}')"
+                  style="background:none;border:1px solid var(--danger);color:var(--danger);
+                         border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">✕</button>
+               </span>`
+        }
       </div>`;
     });
     html += '</div>';
@@ -2996,6 +3004,41 @@ function renderPendingConfirmation(e) {
 
   el('expense-detail-content').innerHTML = html;
   recalcMyConfirmTotal();
+}
+
+async function removeParticipantFromPending(expenseId, uid) {
+  const e = window._pendingExpenseData;
+  if (!e) return;
+  const participantObj = (e.participants||[]).find(p => p.uid === uid);
+  if (!participantObj) return;
+  try {
+    const updateData = {
+      participants: firebase.firestore.FieldValue.arrayRemove(participantObj)
+    };
+    updateData[`selections.${uid}`] = firebase.firestore.FieldValue.delete();
+    await db.collection('expenses').doc(expenseId).update(updateData);
+
+    // Re-fetch and check if all remaining confirmed
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const updated = { id: snap.id, ...snap.data() };
+    const remaining = updated.participants || [];
+    const allConfirmed = remaining.length > 0 && remaining.every(p => (updated.selections||{})[p.uid]?.confirmed);
+
+    if (allConfirmed) {
+      if (_expenseDetailUnsub) { _expenseDetailUnsub(); _expenseDetailUnsub = null; }
+      const newSelections = computeFinalShares(updated);
+      await db.collection('expenses').doc(expenseId).update({ selections: newSelections, status: 'open' });
+      const finalSnap = await db.collection('expenses').doc(expenseId).get();
+      const finalData = { id: finalSnap.id, ...finalSnap.data() };
+      renderSettlement(finalData, finalData.selections || {}, remaining, false);
+      go('s-settlement');
+    } else {
+      toast(`${participantObj.name} убран из расхода`);
+      renderPendingConfirmation(updated);
+    }
+  } catch(err) {
+    toast('Ошибка: ' + err.message);
+  }
 }
 
 function toggleMyItem(idx) {
