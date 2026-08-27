@@ -2533,6 +2533,39 @@ function renderSettlement(expenseData, selections, participants, isPending) {
     });
     html += '</div>';
 
+    // Блок «Кто что выбрал» — разбивка по блюдам
+    const expItems = expenseData.items || [];
+    if (expItems.length > 0) {
+      html += `<div class="card"><div class="card-title" style="margin-bottom:10px;">👁 Кто что выбрал</div>`;
+      expItems.forEach((item, idx) => {
+        const itemTotal = (item.qty||1) * (item.price||0);
+        if (item.shared) {
+          html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;">
+              <span style="font-size:13px;font-weight:600;">${esc(item.name)}</span>
+              <span style="font-size:13px;color:var(--text2);">${fmt(itemTotal)} ₸</span>
+            </div>
+            <div style="font-size:12px;color:var(--accent);margin-top:2px;">🤝 общая — поровну</div>
+          </div>`;
+          return;
+        }
+        const choosers = [];
+        (participants||[]).forEach(p => {
+          const pSel = ((selections[p.uid]||{}).dishSel||{})[idx];
+          if (pSel === 'full') choosers.push(`<span style="display:inline-block;background:var(--success);color:#fff;border-radius:99px;padding:1px 7px;font-size:11px;font-weight:600;margin:2px 2px 0 0;">🟢 ${esc(p.name)}</span>`);
+          else if (pSel === 'half') choosers.push(`<span style="display:inline-block;background:var(--warn);color:#fff;border-radius:99px;padding:1px 7px;font-size:11px;font-weight:600;margin:2px 2px 0 0;">🟡 ${esc(p.name)} ½</span>`);
+        });
+        html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;">
+            <span style="font-size:13px;font-weight:600;">${esc(item.name)}</span>
+            <span style="font-size:13px;color:var(--text2);">${fmt(itemTotal)} ₸</span>
+          </div>
+          <div style="margin-top:4px;">${choosers.length ? choosers.join('') : '<span style="font-size:11px;color:var(--text3);">никто не выбрал — поровну</span>'}</div>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
     if (debts.length > 0) {
       html += `<div class="card" style="border:2px solid var(--accent);">
         <div style="font-size:13px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">💸 Кто кому переводит</div>`;
@@ -2932,13 +2965,25 @@ function renderPendingConfirmation(e) {
                       : sel==='half' ? 'background:var(--warn);color:#fff;border-color:var(--warn);'
                       : 'background:var(--surface2);color:var(--text2);border-color:var(--border);';
       const selLabel = sel==='full' ? '🟢 Полностью' : sel==='half' ? '🟡 Делил' : '⬜ Не ел';
+
+      // Кто из других уже выбрал это блюдо
+      const otherChips = [];
+      (e.participants||[]).forEach(p => {
+        if (p.uid === currentUser.uid) return;
+        const pSel = ((e.selections||{})[p.uid]?.dishSel||{})[idx];
+        if (pSel === 'full') otherChips.push(`<span style="display:inline-block;background:var(--success);color:#fff;border-radius:99px;padding:2px 7px;font-size:11px;font-weight:600;margin:2px 2px 0 0;">🟢 ${esc(p.name)}</span>`);
+        else if (pSel === 'half') otherChips.push(`<span style="display:inline-block;background:var(--warn);color:#fff;border-radius:99px;padding:2px 7px;font-size:11px;font-weight:600;margin:2px 2px 0 0;">🟡 ${esc(p.name)} ½</span>`);
+      });
+      const othersHtml = otherChips.length ? `<div style="margin-top:5px;line-height:1.6;">${otherChips.join('')}</div>` : '';
+
       html += `<div onclick="toggleMyItem(${idx})" id="my-item-${idx}"
         style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;border:2px solid;margin-bottom:8px;cursor:pointer;transition:all 0.15s;${selStyle}">
-        <div>
+        <div style="flex:1;">
           <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
           <div style="font-size:12px;opacity:0.75;">${item.qty}× ${fmt(item.price)} ₸ = ${fmt(itemTotal)} ₸</div>
+          ${othersHtml}
         </div>
-        <div style="font-size:13px;font-weight:600;white-space:nowrap;" id="my-item-label-${idx}">${selLabel}</div>
+        <div style="font-size:13px;font-weight:600;white-space:nowrap;margin-left:8px;" id="my-item-label-${idx}">${selLabel}</div>
       </div>`;
     });
     html += `</div>`;
@@ -3065,15 +3110,22 @@ function toggleMyItem(idx) {
 function recalcMyConfirmTotal() {
   const e = window._pendingExpenseData;
   if (!e) return;
-  const totalCount = (e.participants||[]).length;
+  const participants = e.participants || [];
   let myTotal = 0;
   (e.items||[]).forEach((item, idx) => {
     const itemTotal = (item.qty||1) * item.price;
-    if (item.shared) { myTotal += itemTotal / totalCount; return; }
-    const sel = window._myConfirmSel[idx] || 'none';
-    if (sel === 'none') return;
-    // We don't know other people's selections yet, so show min estimate
-    myTotal += sel === 'full' ? itemTotal : itemTotal * 0.5;
+    if (item.shared) { myTotal += itemTotal / participants.length; return; }
+    const mySel = window._myConfirmSel[idx] || 'none';
+    if (mySel === 'none') return;
+    // Count effective portions including confirmed others + my current selection
+    let eff = mySel === 'full' ? 1 : 0.5;
+    participants.forEach(p => {
+      if (p.uid === currentUser.uid) return;
+      const pSel = ((e.selections||{})[p.uid]?.dishSel||{})[idx] || 'none';
+      if (pSel === 'full') eff += 1;
+      else if (pSel === 'half') eff += 0.5;
+    });
+    myTotal += ((mySel === 'full' ? 1 : 0.5) / eff) * itemTotal;
   });
   const el2 = el('my-confirm-total');
   if (el2) el2.textContent = fmt(Math.round(myTotal)) + ' ₸';
@@ -3158,8 +3210,20 @@ function computeFinalShares(e) {
     });
   });
 
-  // Round
-  participants.forEach(p => { newSelections[p.uid].myShare = Math.round(newSelections[p.uid].myShare); });
+  // Round shares and correct rounding remainder so total always matches the bill
+  const exactShares = {};
+  participants.forEach(p => { exactShares[p.uid] = newSelections[p.uid].myShare; });
+  participants.forEach(p => { newSelections[p.uid].myShare = Math.floor(newSelections[p.uid].myShare); });
+  const rounded = participants.reduce((s, p) => s + newSelections[p.uid].myShare, 0);
+  const totalBill = Math.round(e.total || items.reduce((s, it) => s + (it.qty||1)*(it.price||0), 0));
+  let remainder = totalBill - rounded;
+  // Distribute remainder (₸1 each) to those with the largest fractional parts
+  const sorted = [...participants].sort((a, b) =>
+    (exactShares[b.uid] - newSelections[b.uid].myShare) - (exactShares[a.uid] - newSelections[a.uid].myShare)
+  );
+  for (let i = 0; i < remainder && i < sorted.length; i++) {
+    newSelections[sorted[i].uid].myShare += 1;
+  }
   return newSelections;
 }
 
