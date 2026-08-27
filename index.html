@@ -1167,8 +1167,19 @@ function expenseItemHTML(e) {
   const bg = e.type === 'receipt' ? 'var(--accent-light)' : 'var(--purple-light)';
   const dt = e.createdAt ? fmtDate(e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt)) : '';
   const mySelection = (e.selections||{})[currentUser.uid];
+  const isPending = e.status === 'pending_confirmation';
+  const myUnconfirmed = isPending && mySelection && !mySelection.confirmed;
+  const confirmedCount = isPending ? Object.values(e.selections||{}).filter(s => s.confirmed).length : 0;
+  const totalCount = (e.participants||[]).length;
+
   let amtHtml = '';
-  if (mySelection) {
+  if (isPending) {
+    if (myUnconfirmed) {
+      amtHtml = `<span style="font-size:12px;font-weight:700;color:var(--danger);background:var(--danger-light);padding:3px 8px;border-radius:99px;">⚡ Подтвердите</span>`;
+    } else {
+      amtHtml = `<span style="font-size:12px;color:var(--warn);background:var(--warn-light);padding:3px 8px;border-radius:99px;">⏳ ${confirmedCount}/${totalCount}</span>`;
+    }
+  } else if (mySelection) {
     const share = mySelection.myShare || 0;
     const color = e.payerId === currentUser.uid ? 'var(--success)' : 'var(--danger)';
     const sign = e.payerId === currentUser.uid ? '+' : '-';
@@ -1182,7 +1193,7 @@ function expenseItemHTML(e) {
     </div>
     <div style="text-align:right;">
       ${amtHtml}
-      <div style="font-size:13px;color:var(--text2);">${fmt(e.total)} ₸</div>
+      <div style="font-size:13px;color:var(--text2);margin-top:2px;">${fmt(e.total)} ₸</div>
     </div>
   </div>`;
 }
@@ -2197,13 +2208,10 @@ function goNextFromParticipants() {
   const selected = currentExpense.participants.filter(p => p.selected);
   if (!selected.length) { toast('Выберите хотя бы одного участника'); return; }
   if (currentExpense.type === 'receipt') {
-    // Go to dish selection
-    currentExpense.dishSelections = {};
-    selected.forEach(p => { currentExpense.dishSelections[p.uid] = {}; });
-    renderDishSelect(selected);
-    go('s-dish-select');
+    // Path B: save as pending_confirmation — each person confirms from their own device
+    saveExpense();
   } else {
-    // Compute shares and save
+    // General expense: compute shares immediately
     computeGeneralShares(selected);
     saveExpense();
   }
@@ -2323,36 +2331,10 @@ async function saveExpense() {
   const selections = {};
 
   if (currentExpense.type === 'receipt') {
-    // Initialize zero shares
+    // Path B: pending_confirmation — no shares yet, each person confirms from their device
     selected.forEach(p => {
-      selections[p.uid] = { myShare: 0, paid: false, disputed: false, dishSel: currentExpense.dishSelections[p.uid] || {} };
+      selections[p.uid] = { myShare: null, confirmed: false, paid: false, dishSel: {} };
     });
-    // Compute shares per item
-    currentExpense.items.forEach((item, idx) => {
-      const itemTotal = (item.qty || 1) * (item.price || 0);
-      if (item.shared) {
-        // Shared item: split equally among all participants
-        const sharePerPerson = itemTotal / selected.length;
-        selected.forEach(p => { selections[p.uid].myShare += sharePerPerson; });
-        return;
-      }
-      // Count dish selections for this item
-      let fullCount = 0, halfCount = 0;
-      selected.forEach(p => {
-        const s = (currentExpense.dishSelections[p.uid]||{})[idx] || 'none';
-        if (s === 'full') fullCount++;
-        else if (s === 'half') halfCount++;
-      });
-      const eff = fullCount + halfCount * 0.5;
-      if (eff === 0) return;
-      selected.forEach(p => {
-        const pSel = (currentExpense.dishSelections[p.uid]||{})[idx] || 'none';
-        if (pSel === 'none') return;
-        selections[p.uid].myShare += ((pSel === 'full' ? 1 : 0.5) / eff) * itemTotal;
-      });
-    });
-    // Round all shares
-    selected.forEach(p => { selections[p.uid].myShare = Math.round(selections[p.uid].myShare); });
   } else {
     selected.forEach(p => {
       selections[p.uid] = { myShare: p.myShare || 0, paid: false, disputed: false };
@@ -2370,16 +2352,16 @@ async function saveExpense() {
       items: currentExpense.type === 'receipt' ? currentExpense.items : [],
       participants: selected.map(p => ({ uid: p.uid, name: p.name })),
       selections,
-      status: 'open',
+      status: currentExpense.type === 'receipt' ? 'pending_confirmation' : 'open',
       createdBy: currentUser.uid,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     const docRef = await db.collection('expenses').add(expenseData);
     await addNotif(`${userDoc.name} добавил расход «${currentExpense.desc}» на ${fmt(currentExpense.total)} ₸`, 'expense');
     toast('Расход сохранён! ✓');
-    // Show settlement screen before resetting
     const savedData = { ...expenseData, id: docRef.id };
-    renderSettlement(savedData, selections, selected);
+    const isPending = expenseData.status === 'pending_confirmation';
+    renderSettlement(savedData, selections, selected, isPending);
     // Reset
     currentExpense = { type:null, desc:'', total:0, payerId:'', payerName:'', items:[], splitType:'equal', participants:[], customShares:{}, dishSelections:{} };
     el('scan-area').style.display = '';
@@ -2392,63 +2374,91 @@ async function saveExpense() {
 // ════════════════════════════════════════════════
 // SETTLEMENT SCREEN
 // ════════════════════════════════════════════════
-function renderSettlement(expenseData, selections, participants) {
+function renderSettlement(expenseData, selections, participants, isPending) {
   el('settlement-desc').textContent = expenseData.desc || '';
-  const debts = computeDebtsFromExpense(expenseData);
-
   let html = '';
 
-  // Total card
-  html += `<div class="card">
-    <div class="row-between">
-      <span style="font-size:14px;color:var(--text2);">Итого по чеку</span>
-      <span style="font-size:22px;font-weight:800;">${fmt(expenseData.total)} ₸</span>
-    </div>
-    <div class="row-between" style="margin-top:6px;">
-      <span style="font-size:13px;color:var(--text2);">Оплатил</span>
-      <span style="font-size:14px;font-weight:600;">${esc(expenseData.payerName||'')}</span>
-    </div>
-  </div>`;
-
-  // Per-person shares
-  html += `<div class="card"><div class="card-title">Доля каждого</div>`;
-  (participants||[]).forEach(p => {
-    const share = (selections[p.uid]||{}).myShare || 0;
-    const isMe = p.uid === currentUser.uid;
-    const isPayer = p.uid === expenseData.payerId;
-    html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
-      <div class="avatar av-teal" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
-      <div style="flex:1;">
-        <div style="font-size:15px;font-weight:${isMe?'700':'500'};">${esc(p.name)}${isMe?' <span style="font-size:12px;color:var(--text2);font-weight:400;">(Вы)</span>':''}${isPayer?' <span style="font-size:11px;color:var(--accent);font-weight:700;">💳 платил</span>':''}</div>
-      </div>
-      <div style="font-size:17px;font-weight:700;${isMe?'color:var(--accent);':''}">${fmt(share)} ₸</div>
+  if (isPending) {
+    // ── PENDING: расход создан, ждём подтверждений ──
+    const n = (participants||[]).length;
+    const avatarColors = ['av-teal','av-purple','av-amber','av-green','av-blue'];
+    html += `<div class="card" style="text-align:center;padding:24px 16px;">
+      <div style="font-size:48px;margin-bottom:12px;">⏳</div>
+      <div style="font-size:19px;font-weight:700;margin-bottom:6px;">Расход создан!</div>
+      <div style="font-size:14px;color:var(--text2);line-height:1.5;">Каждый участник открывает расход<br>и отмечает что ел со своего телефона</div>
     </div>`;
-  });
-  html += '</div>';
 
-  // Settlement arrows
-  if (debts.length > 0) {
-    html += `<div class="card" style="border:2px solid var(--accent);">
-      <div style="font-size:13px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">💸 Кто кому переводит</div>`;
-    debts.forEach(d => {
-      const isMyDebt = d.fromUid === currentUser.uid;
-      const isMyReceivable = d.toUid === currentUser.uid;
-      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-        <div style="font-size:15px;${isMyDebt?'font-weight:700;color:var(--danger);':isMyReceivable?'color:var(--success);':''}">
-          <b>${esc(d.from)}</b> <span style="font-size:18px;margin:0 4px;">→</span> <b>${esc(d.to)}</b>
+    html += `<div class="card">
+      <div class="card-title">Ждём подтверждений (0 из ${n})</div>`;
+    (participants||[]).forEach((p, i) => {
+      const isMe = p.uid === currentUser.uid;
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div class="avatar ${avatarColors[i%5]}" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
+        <div style="flex:1;font-size:14px;font-weight:${isMe?'700':'400'};">${esc(p.name)}${isMe?' (Вы)':''}</div>
+        <span style="font-size:12px;color:var(--text3);">⏳ ожидает</span>
+      </div>`;
+    });
+    html += `</div>`;
+
+    html += `<div style="font-size:13px;color:var(--text2);text-align:center;margin-bottom:16px;line-height:1.5;">
+      Итоги появятся автоматически,<br>когда все отметят свои блюда
+    </div>`;
+    html += `<button class="btn btn-primary" onclick="go('s-home')" style="margin-top:4px;">Готово</button>`;
+
+  } else {
+    // ── FINAL: все подтвердили, показываем итоги ──
+    const debts = computeDebtsFromExpense(expenseData);
+
+    html += `<div class="card">
+      <div class="row-between">
+        <span style="font-size:14px;color:var(--text2);">Итого по чеку</span>
+        <span style="font-size:22px;font-weight:800;">${fmt(expenseData.total)} ₸</span>
+      </div>
+      <div class="row-between" style="margin-top:6px;">
+        <span style="font-size:13px;color:var(--text2);">Оплатил</span>
+        <span style="font-size:14px;font-weight:600;">${esc(expenseData.payerName||'')}</span>
+      </div>
+    </div>`;
+
+    html += `<div class="card"><div class="card-title">Доля каждого</div>`;
+    (participants||[]).forEach(p => {
+      const share = (selections[p.uid]||{}).myShare || 0;
+      const isMe = p.uid === currentUser.uid;
+      const isPayer = p.uid === expenseData.payerId;
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div class="avatar av-teal" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
+        <div style="flex:1;font-size:15px;font-weight:${isMe?'700':'500'};">
+          ${esc(p.name)}${isMe?' <span style="font-size:12px;color:var(--text2);font-weight:400;">(Вы)</span>':''}
+          ${isPayer?' <span style="font-size:11px;color:var(--accent);font-weight:700;">💳 платил</span>':''}
         </div>
-        <div style="font-size:18px;font-weight:800;${isMyDebt?'color:var(--danger);':isMyReceivable?'color:var(--success);':''}">${fmt(d.amount)} ₸</div>
+        <div style="font-size:17px;font-weight:700;${isMe?'color:var(--accent);':''}">${fmt(share)} ₸</div>
       </div>`;
     });
     html += '</div>';
-  } else {
-    html += `<div class="card" style="text-align:center;color:var(--success);">
-      <div style="font-size:32px;margin-bottom:8px;">✅</div>
-      <div style="font-size:15px;font-weight:600;">Все рассчитались!</div>
-    </div>`;
+
+    if (debts.length > 0) {
+      html += `<div class="card" style="border:2px solid var(--accent);">
+        <div style="font-size:13px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">💸 Кто кому переводит</div>`;
+      debts.forEach(d => {
+        const isMyDebt = d.fromUid === currentUser.uid;
+        const isMyReceivable = d.toUid === currentUser.uid;
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:15px;${isMyDebt?'font-weight:700;color:var(--danger);':isMyReceivable?'color:var(--success);':''}">
+            <b>${esc(d.from)}</b> <span style="font-size:18px;margin:0 4px;">→</span> <b>${esc(d.to)}</b>
+          </div>
+          <div style="font-size:18px;font-weight:800;${isMyDebt?'color:var(--danger);':isMyReceivable?'color:var(--success);':''}">${fmt(d.amount)} ₸</div>
+        </div>`;
+      });
+      html += '</div>';
+    } else {
+      html += `<div class="card" style="text-align:center;color:var(--success);">
+        <div style="font-size:32px;margin-bottom:8px;">✅</div>
+        <div style="font-size:15px;font-weight:600;">Все рассчитались!</div>
+      </div>`;
+    }
+    html += `<button class="btn btn-primary" onclick="go('s-home')" style="margin-top:4px;">Готово</button>`;
   }
 
-  html += `<button class="btn btn-primary" onclick="go('s-home')" style="margin-top:4px;">Готово</button>`;
   el('settlement-content').innerHTML = html;
 }
 
@@ -2501,6 +2511,12 @@ function computeDebtsFromExpense(e) {
 function renderExpenseDetail(e) {
   el('detail-title').textContent = e.desc || 'Расход';
   el('detail-date').textContent = e.createdAt ? fmtDate(e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt)) : '';
+
+  // ── PENDING CONFIRMATION BRANCH ──
+  if (e.status === 'pending_confirmation') {
+    renderPendingConfirmation(e);
+    return;
+  }
 
   const mySelection = (e.selections||{})[currentUser.uid];
   const iAmPayer = e.payerId === currentUser.uid || (e.payers||[]).some(p => p.uid === currentUser.uid);
@@ -2701,6 +2717,218 @@ function renderExpenseDetail(e) {
   // Show/hide topbar delete icon
   const dBtn = el('detail-delete-btn');
   if (dBtn) dBtn.style.display = canDelete ? '' : 'none';
+}
+
+// ════════════════════════════════════════════════
+// PENDING CONFIRMATION — per-person dish selection
+// ════════════════════════════════════════════════
+function renderPendingConfirmation(e) {
+  const mySelection = (e.selections||{})[currentUser.uid];
+  const confirmedCount = Object.values(e.selections||{}).filter(s => s.confirmed).length;
+  const totalCount = (e.participants||[]).length;
+  const avatarColors = ['av-teal','av-purple','av-amber','av-green','av-blue'];
+
+  // Init temp selections from saved dishSel
+  window._pendingExpenseId = e.id;
+  window._pendingExpenseData = e;
+  window._myConfirmSel = (mySelection && mySelection.dishSel) ? {...mySelection.dishSel} : {};
+
+  let html = '';
+
+  if (mySelection && !mySelection.confirmed) {
+    // ── I haven't confirmed yet — show my dish-select ──
+    el('detail-title').textContent = 'Отметьте свои блюда';
+    html += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px;padding:0 2px;">
+      Нажмите на блюдо чтобы отметить: 🟢 полностью ел, 🟡 делил с кем-то, серый — не ел
+    </div>`;
+
+    html += `<div id="my-confirm-items">`;
+    (e.items||[]).forEach((item, idx) => {
+      const itemTotal = (item.qty||1) * item.price;
+      const sel = window._myConfirmSel[idx] || 'none';
+      if (item.shared) {
+        const perPerson = Math.round(itemTotal / totalCount);
+        html += `<div style="background:var(--accent-light);border-radius:12px;padding:12px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
+            <div style="font-size:12px;color:var(--text2);">${fmt(itemTotal)} ₸</div>
+          </div>
+          <div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:4px;">🤝 Общая — ваша доля: ${fmt(perPerson)} ₸</div>
+        </div>`;
+        return;
+      }
+      const selStyle = sel==='full' ? 'background:var(--success);color:#fff;border-color:var(--success);'
+                      : sel==='half' ? 'background:var(--warn);color:#fff;border-color:var(--warn);'
+                      : 'background:var(--surface2);color:var(--text2);border-color:var(--border);';
+      const selLabel = sel==='full' ? '🟢 Ел полностью' : sel==='half' ? '🟡 Делил' : '⬜ Не ел';
+      html += `<div onclick="toggleMyItem(${idx})" id="my-item-${idx}"
+        style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;border:2px solid;margin-bottom:8px;cursor:pointer;transition:all 0.15s;${selStyle}">
+        <div>
+          <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
+          <div style="font-size:12px;opacity:0.8;">${item.qty}× ${fmt(item.price)} ₸ = ${fmt(itemTotal)} ₸</div>
+        </div>
+        <div style="font-size:13px;font-weight:600;white-space:nowrap;" id="my-item-label-${idx}">${selLabel}</div>
+      </div>`;
+    });
+    html += `</div>`;
+
+    html += `<div style="background:var(--surface2);border-radius:12px;padding:12px;margin:12px 0;display:flex;justify-content:space-between;">
+      <span style="font-size:14px;color:var(--text2);">Моя доля</span>
+      <span style="font-size:16px;font-weight:700;color:var(--accent);" id="my-confirm-total">0 ₸</span>
+    </div>`;
+
+    html += `<button class="btn btn-primary" onclick="confirmMyItems()">✅ Подтвердить мою долю</button>`;
+
+  } else {
+    // ── I confirmed, waiting for others ──
+    el('detail-title').textContent = 'Ожидание участников';
+    html += `<div class="card" style="text-align:center;padding:20px;">
+      <div style="font-size:36px;margin-bottom:8px;">⏳</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Вы подтвердили ✓</div>
+      <div style="font-size:13px;color:var(--text2);">Ждём остальных участников</div>
+    </div>`;
+
+    html += `<div class="card"><div class="card-title">Прогресс (${confirmedCount} из ${totalCount})</div>`;
+    (e.participants||[]).forEach((p, i) => {
+      const sel = (e.selections||{})[p.uid] || {};
+      const isMe = p.uid === currentUser.uid;
+      const confirmed = sel.confirmed;
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div class="avatar ${avatarColors[i%5]}" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
+        <div style="flex:1;font-size:14px;font-weight:${isMe?'700':'400'};">${esc(p.name)}${isMe?' (Вы)':''}</div>
+        ${confirmed
+          ? `<span style="font-size:13px;color:var(--success);font-weight:700;">✓ Подтвердил</span>`
+          : `<span style="font-size:12px;color:var(--text3);">⏳ ожидает</span>`}
+      </div>`;
+    });
+    html += '</div>';
+    html += `<button class="btn btn-secondary" onclick="go('s-home')" style="margin-top:4px;">На главную</button>`;
+  }
+
+  el('expense-detail-content').innerHTML = html;
+  recalcMyConfirmTotal();
+}
+
+function toggleMyItem(idx) {
+  const e = window._pendingExpenseData;
+  const cur = window._myConfirmSel[idx] || 'none';
+  const next = cur === 'none' ? 'full' : cur === 'full' ? 'half' : 'none';
+  window._myConfirmSel[idx] = next;
+
+  const row = el('my-item-' + idx);
+  const lbl = el('my-item-label-' + idx);
+  if (next === 'full') {
+    row.style.cssText = row.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+;/, 'background:var(--success);color:#fff;border-color:var(--success);');
+    lbl.textContent = '🟢 Ел полностью';
+  } else if (next === 'half') {
+    row.style.cssText = row.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+;/, 'background:var(--warn);color:#fff;border-color:var(--warn);');
+    lbl.textContent = '🟡 Делил';
+  } else {
+    row.style.cssText = row.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+;/, 'background:var(--surface2);color:var(--text2);border-color:var(--border);');
+    lbl.textContent = '⬜ Не ел';
+  }
+  recalcMyConfirmTotal();
+}
+
+function recalcMyConfirmTotal() {
+  const e = window._pendingExpenseData;
+  if (!e) return;
+  const totalCount = (e.participants||[]).length;
+  let myTotal = 0;
+  (e.items||[]).forEach((item, idx) => {
+    const itemTotal = (item.qty||1) * item.price;
+    if (item.shared) { myTotal += itemTotal / totalCount; return; }
+    const sel = window._myConfirmSel[idx] || 'none';
+    if (sel === 'none') return;
+    // We don't know other people's selections yet, so show min estimate
+    myTotal += sel === 'full' ? itemTotal : itemTotal * 0.5;
+  });
+  const el2 = el('my-confirm-total');
+  if (el2) el2.textContent = fmt(Math.round(myTotal)) + ' ₸';
+}
+
+async function confirmMyItems() {
+  const expenseId = window._pendingExpenseId;
+  const e = window._pendingExpenseData;
+  if (!expenseId || !e) { toast('Ошибка: нет данных'); return; }
+
+  const myDishSel = window._myConfirmSel || {};
+
+  try {
+    // Save my confirmation to Firestore
+    const updateData = {};
+    updateData[`selections.${currentUser.uid}.dishSel`] = myDishSel;
+    updateData[`selections.${currentUser.uid}.confirmed`] = true;
+    await db.collection('expenses').doc(expenseId).update(updateData);
+
+    // Re-fetch expense to check if all confirmed
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const data = { id: snap.id, ...snap.data() };
+    const allConfirmed = Object.values(data.selections||{}).every(s => s.confirmed);
+
+    if (allConfirmed) {
+      // Compute final shares for everyone
+      const newSelections = computeFinalShares(data);
+      await db.collection('expenses').doc(expenseId).update({
+        selections: newSelections,
+        status: 'open'
+      });
+      await addNotif(`Все подтвердили расход «${data.desc}» — итоги готовы!`, 'expense');
+      // Show final settlement
+      const participants = data.participants || [];
+      el('settlement-desc').textContent = data.desc || '';
+      renderSettlement({ ...data, selections: newSelections }, newSelections, participants, false);
+      go('s-settlement');
+    } else {
+      const confirmedCount = Object.values(data.selections||{}).filter(s => s.confirmed).length;
+      const totalCount = (data.participants||[]).length;
+      toast(`Ваша доля подтверждена ✓ (${confirmedCount}/${totalCount})`);
+      go('s-home');
+    }
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
+function computeFinalShares(e) {
+  const participants = e.participants || [];
+  const items = e.items || [];
+  const newSelections = {};
+
+  // Initialize
+  participants.forEach(p => {
+    newSelections[p.uid] = { ...((e.selections||{})[p.uid]||{}), myShare: 0 };
+  });
+
+  items.forEach((item, idx) => {
+    const itemTotal = (item.qty||1) * (item.price||0);
+    if (item.shared) {
+      const sharePerPerson = itemTotal / participants.length;
+      participants.forEach(p => { newSelections[p.uid].myShare += sharePerPerson; });
+      return;
+    }
+    // Tally full/half for this item across all participants
+    let fullCount = 0, halfCount = 0;
+    participants.forEach(p => {
+      const sel = ((e.selections||{})[p.uid]?.dishSel || {})[idx] || 'none';
+      if (sel === 'full') fullCount++;
+      else if (sel === 'half') halfCount++;
+    });
+    const eff = fullCount + halfCount * 0.5;
+    if (eff === 0) {
+      // Nobody selected this item — split equally (fallback)
+      const sharePerPerson = itemTotal / participants.length;
+      participants.forEach(p => { newSelections[p.uid].myShare += sharePerPerson; });
+      return;
+    }
+    participants.forEach(p => {
+      const sel = ((e.selections||{})[p.uid]?.dishSel || {})[idx] || 'none';
+      if (sel === 'none') return;
+      newSelections[p.uid].myShare += ((sel === 'full' ? 1 : 0.5) / eff) * itemTotal;
+    });
+  });
+
+  // Round
+  participants.forEach(p => { newSelections[p.uid].myShare = Math.round(newSelections[p.uid].myShare); });
+  return newSelections;
 }
 
 function toggleParticipantsPanel() {
