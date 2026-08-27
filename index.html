@@ -3290,15 +3290,15 @@ async function approveEqualSplit(expenseId) {
   } catch(err) { toast('Ошибка: ' + err.message); }
 }
 
-// Назначить невостребованную половину блюда на конкретного участника
-async function assignUnclaimed(expenseId, itemIdx, uid) {
+// Назначить блюдо/остаток на конкретного участника
+// sel='full' — никто не брал, назначить целое; sel='half' — назначить вторую половину
+async function assignUnclaimed(expenseId, itemIdx, uid, sel) {
+  sel = sel || 'half';
   try {
-    // Устанавливаем 'half' для этого участника по данному блюду
     const updateData = {};
-    updateData[`selections.${uid}.dishSel.${itemIdx}`] = 'half';
+    updateData[`selections.${uid}.dishSel.${itemIdx}`] = sel;
     await db.collection('expenses').doc(expenseId).update(updateData);
     toast('Назначено ✓');
-    // Re-fetch and check if still needs review
     const snap = await db.collection('expenses').doc(expenseId).get();
     const data2 = { id: snap.id, ...snap.data() };
     if (hasNeedsReview(data2)) {
@@ -3306,6 +3306,24 @@ async function assignUnclaimed(expenseId, itemIdx, uid) {
     } else {
       await approveEqualSplit(expenseId);
     }
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
+// Переименовать нераспознанное блюдо
+async function renameCreatorItem(expenseId, itemIdx) {
+  const input = el('rename-item-' + itemIdx);
+  if (!input) return;
+  const newName = input.value.trim();
+  if (!newName) { toast('Введите название'); return; }
+  try {
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const data = snap.data();
+    const items = [...(data.items||[])];
+    items[itemIdx] = { ...items[itemIdx], name: newName };
+    await db.collection('expenses').doc(expenseId).update({ items });
+    toast('Название сохранено ✓');
+    const snap2 = await db.collection('expenses').doc(expenseId).get();
+    renderExpenseDetail({ id: snap2.id, ...snap2.data() });
   } catch(err) { toast('Ошибка: ' + err.message); }
 }
 
@@ -3353,6 +3371,8 @@ function renderCreatorReview(e) {
     const isUnallocated = eff === 0;
     const unclaimedAmt = Math.round((1 - eff) * itemTotal);
     const unclaimedPerHead = Math.round(unclaimedAmt / participants.length);
+    const isUnrecognized = (item.name||'').includes('Нераспознано');
+    const assignSel = isUnallocated ? 'full' : 'half';
 
     html += `<div style="background:var(--warn-light);border:1px solid var(--warn);border-radius:12px;padding:14px;margin-bottom:12px;">`;
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -3360,26 +3380,38 @@ function renderCreatorReview(e) {
       <span style="font-size:14px;font-weight:700;color:var(--warn);">${fmt(itemTotal)} ₸</span>
     </div>`;
 
+    // Rename field for unrecognized items
+    if (isUnrecognized) {
+      html += `<div style="display:flex;gap:6px;margin-bottom:8px;">
+        <input id="rename-item-${idx}" class="input" value="" placeholder="Введите название блюда"
+          style="flex:1;font-size:12px;padding:6px 10px;border-radius:8px;min-width:0;">
+        <button onclick="renameCreatorItem('${e.id}',${idx})"
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;
+                 padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">✎ Сохранить</button>
+      </div>`;
+    }
+
     if (isUnallocated) {
-      html += `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Никто не выбрал это блюдо</div>`;
-      html += `<div style="font-size:12px;color:var(--warn);font-weight:600;margin-bottom:8px;">При делении поровну: ${fmt(perHead)} ₸ × ${participants.length} чел.</div>`;
+      html += `<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Никто не выбрал это блюдо</div>`;
     } else {
-      // Half-claimed
       const halfNames = claimers.half.map(p => `<b>${esc(p.name.split(' ')[0])}</b>`).join(', ');
       html += `<div style="font-size:12px;color:var(--text2);margin-bottom:4px;">Взяли половину: ${halfNames}</div>`;
-      html += `<div style="font-size:12px;color:var(--warn);font-weight:600;margin-bottom:8px;">Остаток ${fmt(unclaimedAmt)} ₸ не распределён</div>`;
-      html += `<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Назначить остаток на:</div>`;
-      html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;">`;
-      participants.forEach(p => {
-        html += `<button onclick="assignUnclaimed('${e.id}',${idx},'${p.uid}')"
-          style="background:var(--surface);border:1px solid var(--accent);color:var(--accent);
-                 border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">
-          ${esc(p.name.split(' ')[0])}
-        </button>`;
-      });
-      html += `</div>`;
-      html += `<div style="font-size:11px;color:var(--text3);">Или нажмите «Поровну» ниже — остаток (${fmt(unclaimedPerHead)} ₸/чел.) распределится на всех</div>`;
+      html += `<div style="font-size:12px;color:var(--warn);font-weight:600;margin-bottom:6px;">Остаток ${fmt(unclaimedAmt)} ₸ не распределён</div>`;
     }
+
+    html += `<div style="font-size:12px;color:var(--text2);margin-bottom:5px;font-weight:600;">
+      ${isUnallocated ? 'Назначить на кого:' : 'Назначить остаток на:'}
+    </div>`;
+    html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">`;
+    participants.forEach(p => {
+      html += `<button onclick="assignUnclaimed('${e.id}',${idx},'${p.uid}','${assignSel}')"
+        style="background:var(--surface);border:1px solid var(--accent);color:var(--accent);
+               border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;">
+        ${esc(p.name.split(' ')[0])}
+      </button>`;
+    });
+    html += `</div>`;
+    html += `<div style="font-size:11px;color:var(--text3);">или «Поровну» ниже — ${fmt(isUnallocated ? perHead : unclaimedPerHead)} ₸/чел.</div>`;
 
     html += `</div>`;
   });
