@@ -267,6 +267,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
       </div>
       <button class="btn btn-primary" onclick="doLogin()">Войти</button>
       <p id="login-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+      <button onclick="go('s-reset-pass')" style="background:none;border:none;color:var(--text2);font-size:13px;margin-top:12px;cursor:pointer;text-decoration:underline;width:100%;">Забыли пароль?</button>
     </div>
 
     <!-- Register -->
@@ -744,6 +745,40 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: reset password -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-reset-pass">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-auth')">←</button>
+    <div class="topbar-col"><h1>Сброс пароля</h1></div>
+  </div>
+  <div class="content">
+    <div style="font-size:14px;color:var(--text2);margin-bottom:20px;line-height:1.5;">
+      Введите ваш номер телефона, код команды и задайте новый пароль. Администратор подтвердит сброс.
+    </div>
+    <div class="input-group">
+      <label class="input-label">Телефон</label>
+      <input class="input" id="reset-phone" type="tel" placeholder="+7 777 000 00 00" autocomplete="tel">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Код команды</label>
+      <input class="input" id="reset-team-code" type="text" placeholder="Например: 123456" autocomplete="off" style="letter-spacing:2px;">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Новый пароль</label>
+      <input class="input" id="reset-pass" type="password" placeholder="Минимум 6 символов" autocomplete="new-password">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Повторите пароль</label>
+      <input class="input" id="reset-pass2" type="password" placeholder="Повторите пароль" autocomplete="new-password">
+    </div>
+    <button class="btn btn-primary" onclick="doResetPassword()">Отправить запрос</button>
+    <p id="reset-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+    <p id="reset-success" style="color:var(--success);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
 <!-- MODALS -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- Dispute modal -->
@@ -1015,6 +1050,47 @@ async function doLogout() {
   currentUser = null; userDoc = null; teamDoc = null; teamMembers = [];
   if (auth) await auth.signOut();
   go('s-auth');
+}
+
+async function doResetPassword() {
+  const phone = v('reset-phone').trim();
+  const pass  = v('reset-pass');
+  const pass2 = v('reset-pass2');
+  const code  = v('reset-team-code').trim().toUpperCase();
+  const errEl = el('reset-error');
+  const okEl  = el('reset-success');
+  errEl.style.display = 'none';
+  okEl.style.display  = 'none';
+
+  if (!phone) { errEl.textContent = 'Введите номер телефона'; errEl.style.display=''; return; }
+  if (!code)  { errEl.textContent = 'Введите код команды';    errEl.style.display=''; return; }
+  if (pass.length < 6) { errEl.textContent = 'Пароль минимум 6 символов'; errEl.style.display=''; return; }
+  if (pass !== pass2)  { errEl.textContent = 'Пароли не совпадают';        errEl.style.display=''; return; }
+
+  try {
+    // 1. Verify team code exists
+    const teamsSnap = await db.collection('teams').where('code', '==', code).limit(1).get();
+    if (teamsSnap.empty) { errEl.textContent = 'Неверный код команды'; errEl.style.display=''; return; }
+
+    // 2. Verify user with this phone exists in our Firestore
+    const usersSnap = await db.collection('users').where('phone', '==', phone.replace(/\D/g,'')).limit(1).get();
+    if (usersSnap.empty) { errEl.textContent = 'Пользователь с таким номером не найден'; errEl.style.display=''; return; }
+
+    // 3. Save reset request — admin will set temp password in Firebase Console
+    await db.collection('password_reset_requests').add({
+      phone: phone.replace(/\D/g,''),
+      teamCode: code,
+      newPassword: pass,   // admin copies this temp pass into Firebase Console
+      requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      status: 'pending'
+    });
+
+    okEl.textContent = '✓ Запрос отправлен! Администратор сбросит пароль и сообщит вам в течение нескольких минут.';
+    okEl.style.display = '';
+  } catch(err) {
+    errEl.textContent = firebaseErrMsg(err);
+    errEl.style.display = '';
+  }
 }
 
 function firebaseErrMsg(e) {
