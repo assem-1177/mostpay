@@ -2993,11 +2993,14 @@ function renderPendingConfirmation(e) {
         return;
       }
       const halfBlocked = othersHaveHalfForItem(e, idx);
+      const fullBlocked = othersHaveFullForItem(e, idx);
       const selStyle = sel==='full' ? 'background:var(--success);color:#fff;border-color:var(--success);'
                       : sel==='half' ? 'background:var(--warn);color:#fff;border-color:var(--warn);'
+                      : fullBlocked ? 'background:var(--danger-light);color:var(--danger);border-color:var(--danger);opacity:0.7;'
                       : 'background:var(--surface2);color:var(--text2);border-color:var(--border);';
-      const selLabel = sel==='full' ? '🟢 Полностью'
+      const selLabel = sel==='full' ? '🟢 Ел полностью'
                      : sel==='half' ? '🟡 Делил'
+                     : fullBlocked ? '🚫 Занято'
                      : halfBlocked ? '⬜ Не ел (→ Делил)' : '⬜ Не ел';
 
       // Кто из других уже выбрал это блюдо
@@ -3122,11 +3125,24 @@ function othersHaveHalfForItem(e, idx) {
   });
 }
 
+function othersHaveFullForItem(e, idx) {
+  return (e.participants||[]).some(p => {
+    if (p.uid === currentUser.uid) return false;
+    return ((e.selections||{})[p.uid]?.dishSel||{})[idx] === 'full';
+  });
+}
+
 function toggleMyItem(idx) {
   const e = window._pendingExpenseData;
   const cur = window._myConfirmSel[idx] || 'none';
-  // Если кто-то из подтверждённых взял "½" — нельзя взять "целую"
-  const halfBlocked = othersHaveHalfForItem(e, idx);
+  const halfBlocked = othersHaveHalfForItem(e, idx); // у кого-то "½" → нельзя "целый"
+  const fullBlocked = othersHaveFullForItem(e, idx); // у кого-то "целый" → блюдо занято, нельзя "½"
+
+  if (fullBlocked) {
+    toast('Это блюдо уже занято другим участником');
+    return;
+  }
+
   let next;
   if (halfBlocked) {
     next = cur === 'none' ? 'half' : 'none'; // только none ↔ half
@@ -3145,7 +3161,7 @@ function toggleMyItem(idx) {
     lbl.textContent = '🟡 Делил';
   } else {
     row.style.cssText = row.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+;/, 'background:var(--surface2);color:var(--text2);border-color:var(--border);');
-    lbl.textContent = halfBlocked ? '⬜ Не ел (нажать → Делил)' : '⬜ Не ел';
+    lbl.textContent = halfBlocked ? '⬜ Не ел (→ Делил)' : '⬜ Не ел';
   }
   // Сохраняем dishSel в Firestore сразу — чтобы другие видели ограничение в реальном времени
   if (window._pendingExpenseId && currentUser) {
