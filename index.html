@@ -3147,6 +3147,12 @@ function toggleMyItem(idx) {
     row.style.cssText = row.style.cssText.replace(/background:[^;]+;color:[^;]+;border-color:[^;]+;/, 'background:var(--surface2);color:var(--text2);border-color:var(--border);');
     lbl.textContent = halfBlocked ? '⬜ Не ел (нажать → Делил)' : '⬜ Не ел';
   }
+  // Сохраняем dishSel в Firestore сразу — чтобы другие видели ограничение в реальном времени
+  if (window._pendingExpenseId && currentUser) {
+    const _upd = {};
+    _upd[`selections.${currentUser.uid}.dishSel`] = {...window._myConfirmSel};
+    db.collection('expenses').doc(window._pendingExpenseId).update(_upd).catch(() => {});
+  }
   recalcMyConfirmTotal();
 }
 
