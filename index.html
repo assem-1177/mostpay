@@ -1,0 +1,3021 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MostPay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+
+<!-- Firebase compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<!-- OneSignal Web SDK for push notifications -->
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+:root {
+  --bg: #F8F9FA; --surface: #FFFFFF; --surface2: #F1F3F5;
+  --border: #E9ECEF; --text: #1A1A2E; --text2: #6B7280; --text3: #9CA3AF;
+  --accent: #0D9488; --accent-light: #CCFBF1; --accent-dark: #0A7A70;
+  --danger: #EF4444; --danger-light: #FEE2E2;
+  --warn: #F59E0B; --warn-light: #FEF3C7;
+  --success: #10B981; --success-light: #D1FAE5;
+  --purple: #8B5CF6; --purple-light: #EDE9FE;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08); --shadow-md: 0 4px 6px rgba(0,0,0,0.07);
+  --radius: 12px; --radius-sm: 8px; --radius-lg: 20px;
+}
+:root[data-theme="dark"] {
+  --bg: #0F172A; --surface: #1E293B; --surface2: #273344;
+  --border: #334155; --text: #F1F5F9; --text2: #94A3B8; --text3: #64748B;
+  --accent: #14B8A6; --accent-light: #0F2E2B; --accent-dark: #0D9488;
+  --danger-light: #3B1515; --warn-light: #2D1F00;
+  --success-light: #0A2A1F; --purple-light: #1E1630;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F172A; --surface: #1E293B; --surface2: #273344;
+    --border: #334155; --text: #F1F5F9; --text2: #94A3B8; --text3: #64748B;
+    --accent: #14B8A6; --accent-light: #0F2E2B; --accent-dark: #0D9488;
+    --danger-light: #3B1515; --warn-light: #2D1F00;
+    --success-light: #0A2A1F; --purple-light: #1E1630;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; }
+.phone-wrap { width: 100%; max-width: 390px; min-height: 100vh; background: var(--bg); position: relative; }
+
+.screen { display: none; flex-direction: column; min-height: 100vh; animation: fadeIn 0.18s ease; }
+.screen.active { display: flex; }
+@keyframes fadeIn { from { opacity:0; transform:translateX(10px); } to { opacity:1; transform:translateX(0); } }
+
+.topbar { display:flex; align-items:center; gap:8px; padding:52px 16px 12px; background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10; }
+.topbar h1 { font-size:17px; font-weight:600; flex:1; }
+.topbar .sub { font-size:13px; color:var(--text2); font-weight:400; margin-top:1px; }
+.topbar-col { display:flex; flex-direction:column; flex:1; }
+.back-btn { width:36px; height:36px; display:flex; align-items:center; justify-content:center; background:var(--surface2); border:none; border-radius:50%; color:var(--text); cursor:pointer; font-size:18px; flex-shrink:0; }
+.icon-btn { width:36px; height:36px; display:flex; align-items:center; justify-content:center; background:none; border:none; color:var(--text2); cursor:pointer; font-size:20px; }
+.content { flex:1; overflow-y:auto; padding:16px; }
+.content.no-pad { padding:0; }
+
+.bottom-nav { display:flex; background:var(--surface); border-top:1px solid var(--border); padding:8px 0 24px; }
+.nav-item { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; padding:6px 0; color:var(--text3); font-size:10px; font-weight:500; border:none; background:none; }
+.nav-item.active { color:var(--accent); }
+.nav-item .nav-icon { font-size:22px; }
+.nav-plus { width:52px; height:52px; border-radius:50%; background:var(--accent); border:none; color:white; font-size:26px; cursor:pointer; margin-top:-20px; box-shadow:0 4px 12px rgba(13,148,136,0.4); display:flex; align-items:center; justify-content:center; }
+
+.card { background:var(--surface); border-radius:var(--radius); padding:16px; box-shadow:var(--shadow); margin-bottom:12px; }
+.card-title { font-size:13px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; }
+
+.btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:14px 20px; border-radius:var(--radius); border:none; cursor:pointer; font-family:'Inter',sans-serif; font-size:15px; font-weight:600; transition:opacity 0.15s,transform 0.1s; }
+.btn:active { opacity:0.8; transform:scale(0.98); }
+.btn-primary { background:var(--accent); color:white; }
+.btn-primary:disabled { background:var(--border); color:var(--text3); cursor:not-allowed; transform:none; }
+.btn-secondary { background:var(--surface2); color:var(--text); }
+.btn-ghost { background:none; color:var(--accent); border:1.5px solid var(--accent); }
+.btn-danger { background:var(--danger); color:white; }
+.btn-sm { padding:8px 16px; font-size:13px; font-weight:500; width:auto; border-radius:var(--radius-sm); }
+
+.input-group { margin-bottom:14px; }
+.input-label { font-size:13px; font-weight:500; color:var(--text2); margin-bottom:6px; display:block; }
+.input { width:100%; padding:13px 14px; background:var(--surface2); border:1.5px solid var(--border); border-radius:var(--radius-sm); font-family:'Inter',sans-serif; font-size:15px; color:var(--text); outline:none; transition:border-color 0.15s; }
+.input:focus { border-color:var(--accent); background:var(--surface); }
+.input-hint { font-size:12px; color:var(--text3); margin-top:4px; }
+
+.chip { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:99px; font-size:12px; font-weight:600; }
+.chip-green { background:var(--success-light); color:var(--success); }
+.chip-amber { background:var(--warn-light); color:var(--warn); }
+.chip-red { background:var(--danger-light); color:var(--danger); }
+.chip-grey { background:var(--surface2); color:var(--text2); }
+.chip-teal { background:var(--accent-light); color:var(--accent); }
+.chip-purple { background:var(--purple-light); color:var(--purple); }
+
+.avatar { width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; flex-shrink:0; }
+.av-teal { background:var(--accent-light); color:var(--accent); }
+.av-purple { background:var(--purple-light); color:var(--purple); }
+.av-amber { background:var(--warn-light); color:var(--warn); }
+.av-green { background:var(--success-light); color:var(--success); }
+.av-blue { background:#DBEAFE; color:#3B82F6; }
+
+.divider { height:1px; background:var(--border); margin:12px 0; }
+.amount-big { font-size:32px; font-weight:700; font-variant-numeric:tabular-nums; }
+.amount-med { font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; }
+.amount-red { color:var(--danger); }
+.amount-green { color:var(--success); }
+.badge { min-width:18px; height:18px; border-radius:99px; padding:0 5px; background:var(--danger); color:white; font-size:10px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+
+.expense-item { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+.expense-item:last-child { border-bottom:none; }
+.expense-icon { width:44px; height:44px; border-radius:var(--radius-sm); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+
+.receipt-row { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:6px; background:var(--surface2); border-left:3px solid transparent; }
+.receipt-row.warn { border-left-color:var(--warn); background:var(--warn-light); }
+.receipt-row-name { flex:1; font-size:14px; }
+.receipt-row-price { font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.qty-ctrl { display:flex; align-items:center; gap:6px; }
+.qty-btn { width:26px; height:26px; border-radius:50%; border:1.5px solid var(--accent); background:none; color:var(--accent); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.qty-num { font-size:14px; font-weight:600; min-width:16px; text-align:center; }
+.del-btn { background:none; border:none; color:var(--text3); font-size:18px; cursor:pointer; padding:4px; }
+
+.participant-row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+.participant-row:last-child { border-bottom:none; }
+.check-circle { width:24px; height:24px; border-radius:50%; border:2px solid var(--border); background:none; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all 0.15s; font-size:13px; color:white; }
+.check-circle.checked { background:var(--accent); border-color:var(--accent); }
+
+.dish-row { padding:12px 14px; border-radius:var(--radius-sm); background:var(--surface2); margin-bottom:8px; }
+.dish-opts { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.dish-opt { padding:6px 12px; border-radius:99px; font-size:12px; font-weight:600; border:1.5px solid var(--border); background:none; color:var(--text2); cursor:pointer; transition:all 0.15s; }
+.dish-opt.sel-full { background:var(--accent); border-color:var(--accent); color:white; }
+.dish-opt.sel-half { background:var(--warn); border-color:var(--warn); color:white; }
+.dish-opt.sel-none { background:var(--surface2); border-color:var(--border); color:var(--text3); }
+
+.settle-row { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--border); }
+.settle-row:last-child { border-bottom:none; }
+
+.notif-item { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; border-bottom:1px solid var(--border); }
+.notif-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; margin-top:6px; }
+.notif-dot.read { background:var(--surface2); }
+
+/* OCR progress */
+.ocr-bar { height:4px; background:var(--border); border-radius:99px; overflow:hidden; margin:12px 0; }
+.ocr-fill { height:100%; background:var(--accent); border-radius:99px; width:0; transition:width 0.3s ease; }
+
+/* Discount slider */
+.slider-wrap { padding:8px 0; }
+input[type=range] { -webkit-appearance:none; width:100%; height:4px; border-radius:99px; background:var(--border); outline:none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; height:20px; border-radius:50%; background:var(--accent); cursor:pointer; box-shadow:0 2px 6px rgba(13,148,136,0.4); }
+
+/* Modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:none; align-items:flex-end; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal-sheet { background:var(--surface); border-radius:24px 24px 0 0; padding:24px 20px 40px; width:100%; max-width:390px; animation:slideUp 0.25s ease; }
+@keyframes slideUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+.modal-handle { width:40px; height:4px; background:var(--border); border-radius:99px; margin:0 auto 20px; }
+
+/* Toast */
+.toast { position:fixed; bottom:100px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:var(--surface); padding:10px 20px; border-radius:99px; font-size:14px; font-weight:500; z-index:200; opacity:0; transition:all 0.2s; pointer-events:none; white-space:nowrap; }
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* Loading spinner */
+.spinner { width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; margin:40px auto; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Auth page */
+.auth-hero { padding:60px 24px 32px; text-align:center; }
+.auth-logo { font-size:48px; margin-bottom:16px; }
+.auth-title { font-size:26px; font-weight:700; }
+.auth-sub { font-size:15px; color:var(--text2); margin-top:8px; }
+
+/* Setup screen */
+.setup-step { background:var(--surface2); border-radius:var(--radius-sm); padding:12px; margin-bottom:8px; font-size:13px; color:var(--text2); display:flex; gap:10px; align-items:flex-start; }
+.setup-num { background:var(--accent); color:white; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; margin-top:1px; }
+
+/* Empty state */
+.empty { text-align:center; padding:60px 20px; color:var(--text3); }
+.empty-icon { font-size:48px; margin-bottom:12px; }
+.empty-text { font-size:15px; font-weight:500; color:var(--text2); }
+.empty-sub { font-size:13px; margin-top:6px; }
+
+/* Invite code display */
+.invite-code { font-size:36px; font-weight:700; letter-spacing:8px; text-align:center; color:var(--accent); padding:24px; background:var(--accent-light); border-radius:var(--radius); margin:16px 0; font-variant-numeric:tabular-nums; }
+
+/* Segment control */
+.seg { display:flex; background:var(--surface2); border-radius:var(--radius-sm); padding:3px; margin-bottom:16px; }
+.seg-btn { flex:1; padding:8px; border:none; background:none; border-radius:calc(var(--radius-sm) - 2px); font-family:'Inter',sans-serif; font-size:13px; font-weight:500; color:var(--text2); cursor:pointer; transition:all 0.15s; }
+.seg-btn.active { background:var(--surface); color:var(--text); box-shadow:var(--shadow); font-weight:600; }
+
+.row { display:flex; align-items:center; gap:12px; }
+.row-between { display:flex; align-items:center; justify-content:space-between; }
+</style>
+</head>
+<body>
+<div class="phone-wrap" id="app">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: firebase-setup -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen active" id="s-fb-setup">
+  <div class="auth-hero">
+    <div class="auth-logo">🔥</div>
+    <div class="auth-title">Настройка Firebase</div>
+    <div class="auth-sub">Введите конфигурацию из вашего Firebase проекта</div>
+  </div>
+  <div class="content">
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">Как получить конфигурацию</div>
+      <div class="setup-step"><div class="setup-num">1</div><div>Откройте <b>console.firebase.google.com</b></div></div>
+      <div class="setup-step"><div class="setup-num">2</div><div>Создайте проект → добавьте Web-приложение (значок &lt;/&gt;)</div></div>
+      <div class="setup-step"><div class="setup-num">3</div><div>Скопируйте значения из <b>firebaseConfig</b> и вставьте ниже</div></div>
+      <div class="setup-step"><div class="setup-num">4</div><div>В Firebase включите <b>Authentication → Email/Password</b> и <b>Firestore Database</b></div></div>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">API Key</label>
+      <input class="input" id="fb-apiKey" placeholder="AIzaSy..." autocomplete="off">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Auth Domain</label>
+      <input class="input" id="fb-authDomain" placeholder="your-app.firebaseapp.com" autocomplete="off">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Project ID</label>
+      <input class="input" id="fb-projectId" placeholder="your-app-id" autocomplete="off">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Storage Bucket</label>
+      <input class="input" id="fb-storageBucket" placeholder="your-app.appspot.com" autocomplete="off">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Messaging Sender ID</label>
+      <input class="input" id="fb-messagingSenderId" placeholder="123456789" autocomplete="off">
+    </div>
+    <div class="input-group">
+      <label class="input-label">App ID</label>
+      <input class="input" id="fb-appId" placeholder="1:123:web:abc..." autocomplete="off">
+    </div>
+    <button class="btn btn-primary" onclick="saveFirebaseConfig()" style="margin-top:8px;">Подключить Firebase</button>
+    <p id="fb-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: auth (login / register) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-auth">
+  <div class="auth-hero">
+    <div class="auth-logo">✂️</div>
+    <div class="auth-title">MostPay</div>
+    <div class="auth-sub">Делите счета честно</div>
+  </div>
+  <div class="content">
+    <div class="seg">
+      <button class="seg-btn active" id="seg-login" onclick="switchAuthTab('login')">Войти</button>
+      <button class="seg-btn" id="seg-register" onclick="switchAuthTab('register')">Регистрация</button>
+    </div>
+
+    <!-- Login -->
+    <div id="tab-login">
+      <div class="input-group">
+        <label class="input-label">Телефон</label>
+        <input class="input" id="login-phone" type="tel" placeholder="+7 777 000 00 00" autocomplete="tel">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Пароль</label>
+        <input class="input" id="login-pass" type="password" placeholder="Введите пароль" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" onclick="doLogin()">Войти</button>
+      <p id="login-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+    </div>
+
+    <!-- Register -->
+    <div id="tab-register" style="display:none;">
+      <div class="input-group">
+        <label class="input-label">Имя</label>
+        <input class="input" id="reg-name" type="text" placeholder="Асем Нурланова" autocomplete="name">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Телефон</label>
+        <input class="input" id="reg-phone" type="tel" placeholder="+7 777 000 00 00" autocomplete="tel">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Пароль</label>
+        <input class="input" id="reg-pass" type="password" placeholder="Минимум 6 символов" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary" onclick="doRegister()">Создать аккаунт</button>
+      <p id="reg-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: team setup -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-team-setup">
+  <div class="auth-hero" style="padding-top:80px;">
+    <div class="auth-logo">👥</div>
+    <div class="auth-title">Ваша команда</div>
+    <div class="auth-sub">Создайте команду или присоединитесь к существующей</div>
+  </div>
+  <div class="content">
+    <button class="btn btn-primary" onclick="go('s-team-create')" style="margin-bottom:12px;">🎉 Создать команду</button>
+    <button class="btn btn-ghost" onclick="go('s-team-join')">🔑 Войти по коду приглашения</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: team create -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-team-create">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-team-setup')">←</button>
+    <div class="topbar-col"><h1>Новая команда</h1></div>
+  </div>
+  <div class="content">
+    <div class="input-group">
+      <label class="input-label">Название команды</label>
+      <input class="input" id="team-name" placeholder="Команда МОСТ" autocomplete="off">
+    </div>
+    <button class="btn btn-primary" onclick="createTeam()" style="margin-top:8px;">Создать</button>
+    <p id="team-create-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: team join -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-team-join">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-team-setup')">←</button>
+    <div class="topbar-col"><h1>Войти в команду</h1></div>
+  </div>
+  <div class="content">
+    <div class="input-group">
+      <label class="input-label">Код приглашения (6 цифр)</label>
+      <input class="input" id="join-code" type="text" maxlength="6" placeholder="123456" autocomplete="off" style="text-align:center;letter-spacing:6px;font-size:24px;font-weight:700;">
+    </div>
+    <button class="btn btn-primary" onclick="joinTeam()">Войти</button>
+    <p id="join-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: team invite (show code) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-team-invite">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-home')">←</button>
+    <div class="topbar-col"><h1>Пригласить коллег</h1></div>
+  </div>
+  <div class="content" style="text-align:center;">
+    <p style="color:var(--text2);font-size:14px;margin-bottom:8px;">Код вашей команды</p>
+    <div class="invite-code" id="invite-code-display">------</div>
+    <button class="btn btn-primary" onclick="copyInviteCode()" style="margin-bottom:12px;">📋 Скопировать код</button>
+    <p style="font-size:13px;color:var(--text3);">Поделитесь кодом с коллегами, чтобы они смогли присоединиться</p>
+
+    <div class="divider" style="margin:24px 0;"></div>
+    <div class="card-title">Участники команды</div>
+    <div id="members-list"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: home (main) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-home">
+  <div class="topbar">
+    <div class="topbar-col">
+      <h1 id="home-team-name">Команда</h1>
+      <span class="sub" id="home-user-name">...</span>
+    </div>
+    <button class="icon-btn" onclick="go('s-notifs')" style="position:relative;">
+      🔔<span class="badge" id="notif-badge" style="position:absolute;top:4px;right:4px;display:none;"></span>
+    </button>
+    <button class="icon-btn" onclick="go('s-team-invite')">👥</button>
+  </div>
+
+  <!-- Summary card -->
+  <div style="padding:16px 16px 0;">
+    <div class="card" style="margin-bottom:0;">
+      <div class="row-between" style="margin-bottom:4px;">
+        <span style="font-size:13px;color:var(--text2);">Итого вы должны</span>
+        <span class="chip chip-red" id="home-owe-chip" style="display:none;">⬆ Должны</span>
+        <span class="chip chip-green" id="home-receive-chip" style="display:none;">⬇ Получите</span>
+      </div>
+      <div class="amount-big" id="home-balance">0 ₸</div>
+      <div style="font-size:13px;color:var(--text2);margin-top:4px;" id="home-balance-sub">Нет долгов 🎉</div>
+    </div>
+  </div>
+
+  <!-- Nav tabs -->
+  <div style="padding:12px 16px 0;">
+    <div class="seg">
+      <button class="seg-btn active" id="htab-expenses" onclick="switchHomeTab('expenses')">Расходы</button>
+      <button class="seg-btn" id="htab-settle" onclick="switchHomeTab('settle')">Расчёты</button>
+      <button class="seg-btn" id="htab-history" onclick="switchHomeTab('history')">История</button>
+    </div>
+  </div>
+
+  <div class="content" id="home-tab-content">
+    <div class="spinner"></div>
+  </div>
+
+  <div class="bottom-nav">
+    <button class="nav-item active" onclick="go('s-home')">
+      <span class="nav-icon">🏠</span>Главная
+    </button>
+    <button class="nav-item" onclick="go('s-home'); switchHomeTab('settle')">
+      <span class="nav-icon">💸</span>Расчёты
+    </button>
+    <button class="nav-plus" onclick="go('s-new-type')">＋</button>
+    <button class="nav-item" onclick="go('s-notifs')">
+      <span class="nav-icon">🔔</span>Уведомления
+    </button>
+    <button class="nav-item" onclick="go('s-profile')">
+      <span class="nav-icon">👤</span>Профиль
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: notifications -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-notifs">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-home')">←</button>
+    <div class="topbar-col"><h1>Уведомления</h1></div>
+    <button class="icon-btn" onclick="markAllNotifsRead()" title="Всё прочитано">✓</button>
+  </div>
+  <div class="content no-pad" id="notifs-list">
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: profile -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-profile">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-home')">←</button>
+    <div class="topbar-col"><h1>Профиль</h1></div>
+  </div>
+  <div class="content">
+    <div class="card" style="text-align:center;padding:24px;">
+      <div class="avatar av-teal" style="width:64px;height:64px;font-size:24px;margin:0 auto 12px;" id="profile-avatar">А</div>
+      <div style="font-size:18px;font-weight:700;" id="profile-name">...</div>
+      <div style="font-size:14px;color:var(--text2);margin-top:4px;" id="profile-phone">...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Команда</div>
+      <div class="row-between">
+        <span style="font-size:15px;" id="profile-team">...</span>
+        <button class="btn btn-sm btn-ghost" onclick="go('s-team-invite')">Пригласить</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Настройки</div>
+      <div class="row-between" style="padding:8px 0;">
+        <span style="font-size:15px;">Тема</span>
+        <button class="btn btn-sm btn-secondary" onclick="toggleTheme()" id="theme-btn">🌙 Тёмная</button>
+      </div>
+      <div class="divider"></div>
+      <div class="row-between" style="padding:8px 0;">
+        <span style="font-size:15px;">Firebase</span>
+        <button class="btn btn-sm btn-secondary" onclick="resetFirebaseConfig()">Сбросить</button>
+      </div>
+    </div>
+
+    <button class="btn btn-danger" onclick="doLogout()" style="margin-top:8px;">Выйти</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: new expense type picker -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-new-type">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-home')">←</button>
+    <div class="topbar-col"><h1>Новый расход</h1></div>
+  </div>
+  <div class="content">
+    <div class="card" style="cursor:pointer;padding:20px;" onclick="go('s-receipt-scan')">
+      <div style="font-size:36px;margin-bottom:12px;">🧾</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Ресторанный чек</div>
+      <div style="font-size:13px;color:var(--text2);">Сфотографируйте чек, выберите блюда и укажите кто что ел</div>
+    </div>
+    <div class="card" style="cursor:pointer;padding:20px;" onclick="openGeneralExpense()">
+      <div style="font-size:36px;margin-bottom:12px;">🛒</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Общая покупка</div>
+      <div style="font-size:13px;color:var(--text2);">Укажите кто заплатил и разделите поровну или по долям</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: receipt scan (OCR) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-receipt-scan">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-new-type')">←</button>
+    <div class="topbar-col"><h1>Сканирование чека</h1></div>
+  </div>
+  <div class="content" style="text-align:center;">
+    <!-- Photo area -->
+    <div id="scan-area" style="background:var(--surface2);border-radius:var(--radius);padding:40px 20px;margin-bottom:16px;border:2px dashed var(--border);">
+      <div style="font-size:48px;margin-bottom:12px;">📷</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px;">Сфотографируйте чек</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Или загрузите из галереи</div>
+      <input type="file" id="receipt-file" accept="image/*" style="display:none;" onchange="onReceiptSelected(event)">
+      <button class="btn btn-primary btn-sm" style="width:auto;" onclick="document.getElementById('receipt-file').click()">Открыть камеру / галерею</button>
+    </div>
+
+    <!-- Preview + OCR progress -->
+    <div id="ocr-progress-area" style="display:none;">
+      <img id="receipt-preview" style="width:100%;border-radius:var(--radius);margin-bottom:12px;max-height:200px;object-fit:cover;" src="" alt="">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Распознаю чек...</div>
+      <div class="ocr-bar"><div class="ocr-fill" id="ocr-fill"></div></div>
+      <div style="font-size:12px;color:var(--text3);" id="ocr-status">Подготовка...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: receipt verify (edit items) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-receipt-verify">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-receipt-scan')">←</button>
+    <div class="topbar-col">
+      <h1>Проверьте позиции</h1>
+      <span class="sub">Исправьте ошибки OCR</span>
+    </div>
+  </div>
+  <div class="content">
+    <!-- Totals comparison calculator — always visible -->
+    <div id="totals-card" style="border-radius:12px;padding:14px;margin-bottom:12px;background:var(--bg2);border:2px solid transparent;transition:background 0.25s,border-color 0.25s;">
+      <div style="display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:0;text-align:center;">
+        <!-- Позиции -->
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Позиции</div>
+          <div style="font-size:17px;font-weight:800;color:var(--text1);" id="items-total-display">0</div>
+          <div style="font-size:10px;color:var(--text3);">₸</div>
+        </div>
+        <!-- divider -->
+        <div id="totals-sign" style="font-size:18px;color:var(--text3);padding:0 4px;">≠</div>
+        <!-- По чеку -->
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">По чеку</div>
+          <div style="font-size:17px;font-weight:800;color:var(--text1);" id="receipt-total-display">—</div>
+          <div style="font-size:10px;color:var(--text3);">₸</div>
+        </div>
+        <!-- divider -->
+        <div style="font-size:14px;color:var(--text3);padding:0 4px;">=</div>
+        <!-- Разница -->
+        <div id="diff-cell">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Разница</div>
+          <div style="font-size:17px;font-weight:800;" id="diff-display">—</div>
+          <div style="font-size:10px;color:var(--text3);">₸</div>
+        </div>
+      </div>
+      <!-- Red alert when mismatch -->
+      <div id="mismatch-warn" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:#fee2e2;border:1px solid #fca5a5;font-size:13px;font-weight:600;color:#dc2626;text-align:center;">
+        🔴 Не хватает позиций — добавьте вручную или исправьте суммы
+      </div>
+      <!-- Green OK -->
+      <div id="match-ok" style="display:none;margin-top:10px;padding:6px 10px;border-radius:8px;background:#dcfce7;font-size:13px;font-weight:600;color:#16a34a;text-align:center;">
+        ✅ Суммы совпадают
+      </div>
+    </div>
+
+    <div id="receipt-items-list"></div>
+
+    <button class="btn btn-ghost btn-sm" onclick="addReceiptItem()" style="margin-bottom:16px;">＋ Добавить позицию</button>
+
+    <div class="input-group">
+      <label class="input-label">Итого по чеку (₸) <span style="font-weight:400;color:var(--text3);font-size:11px;">— сумма с чека</span></label>
+      <input class="input" id="receipt-total-input" type="number" placeholder="0" oninput="recalcReceipt()">
+    </div>
+
+    <div class="input-group" style="margin-top:-8px;">
+      <label class="input-label">Итог калькулятор (₸) <span style="font-weight:400;color:var(--text3);font-size:11px;">— сумма позиций</span></label>
+      <div class="input" id="calc-total-display" style="background:var(--bg2);color:var(--text1);font-weight:700;cursor:default;">0</div>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Описание</label>
+      <input class="input" id="receipt-desc" placeholder="Обед в кафе Астана" autocomplete="off">
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Кто платит</label>
+      <select class="input" id="receipt-payer"></select>
+    </div>
+
+    <button class="btn btn-primary" id="receipt-next-btn" onclick="goToParticipants('receipt')">Далее → Выбрать участников</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: general expense (redesigned) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-general-expense">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-new-type')">←</button>
+    <div class="topbar-col"><h1>Общая покупка</h1></div>
+  </div>
+  <div class="content">
+    <!-- Description -->
+    <div class="input-group">
+      <label class="input-label">Описание</label>
+      <input class="input" id="gen-desc" placeholder="Такси, торт, офис..." autocomplete="off">
+    </div>
+
+    <!-- Who paid how much -->
+    <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Кто сколько заплатил</div>
+    <div class="card" style="padding:12px;margin-bottom:12px;">
+      <div id="gen-payers-list"></div>
+    </div>
+
+    <!-- Total auto-calculated -->
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--accent-light);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;">
+      <span style="font-size:14px;color:var(--accent);font-weight:600;">Общая сумма</span>
+      <span style="font-size:20px;font-weight:700;color:var(--accent);" id="gen-total-display">0 ₸</span>
+    </div>
+
+    <!-- Split type -->
+    <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Как делим</div>
+    <div class="seg" style="margin-bottom:16px;">
+      <button class="seg-btn active" id="gen-split-equal-btn" onclick="setGenSplitType('equal')">Поровну</button>
+      <button class="seg-btn" id="gen-split-custom-btn" onclick="setGenSplitType('custom')">По долям</button>
+    </div>
+
+    <!-- Equal: participant checkboxes -->
+    <div id="gen-participants-section">
+      <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Кто участвует</div>
+      <div class="card" style="padding:4px 12px;margin-bottom:16px;">
+        <div id="gen-participants-list"></div>
+      </div>
+    </div>
+
+    <!-- Custom: how much each person owes -->
+    <div id="gen-custom-section" style="display:none;">
+      <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Кто сколько должен</div>
+      <div class="card" style="padding:12px;margin-bottom:4px;">
+        <div id="gen-custom-list"></div>
+      </div>
+      <div id="gen-custom-total-check" style="font-size:13px;color:var(--text2);text-align:right;margin-bottom:12px;"></div>
+    </div>
+
+    <!-- Calculation preview -->
+    <div id="gen-calc-preview" style="display:none;">
+      <div class="card" style="padding:16px;margin-bottom:16px;">
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px;">📊 Расчёт долгов</div>
+        <div id="gen-calc-content"></div>
+        <button class="btn btn-primary" style="margin-top:16px;" onclick="confirmSaveGeneral()">✅ Подтвердить и сохранить</button>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="gen-calc-btn" onclick="calcAndPreviewGeneral()">Рассчитать →</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: select participants -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-participants">
+  <div class="topbar">
+    <button class="back-btn" id="participants-back" onclick="go('s-receipt-verify')">←</button>
+    <div class="topbar-col"><h1>Участники</h1></div>
+  </div>
+  <div class="content">
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">Отметьте кто участвует в этом расходе</div>
+    <div id="participants-list"></div>
+
+    <!-- Custom shares (general expense only) -->
+    <div id="custom-shares-section" style="display:none;">
+      <div class="divider"></div>
+      <div class="card-title">Доли участников</div>
+      <div id="custom-shares-list"></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="row-between" style="margin-bottom:16px;">
+      <span style="font-size:14px;color:var(--text2);">Сумма расхода</span>
+      <span style="font-size:16px;font-weight:700;" id="participants-total">0 ₸</span>
+    </div>
+    <button class="btn btn-primary" id="participants-next-btn" onclick="goNextFromParticipants()">Далее</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: dish selection (per person) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-dish-select">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-participants')">←</button>
+    <div class="topbar-col">
+      <h1>Выбор блюд</h1>
+      <span class="sub" id="dish-select-sub">Кто что ел</span>
+    </div>
+  </div>
+  <div class="content">
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">Для каждого блюда отметьте как ел каждый участник</div>
+    <div id="dish-select-list"></div>
+    <div class="divider"></div>
+    <div class="row-between" style="margin-bottom:6px;">
+      <span style="font-size:14px;color:var(--text2);">Ваша доля</span>
+      <span style="font-size:16px;font-weight:700;color:var(--accent);" id="my-dish-share">0 ₸</span>
+    </div>
+    <button class="btn btn-primary" onclick="saveExpense()">💾 Сохранить расход</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: expense detail -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-expense-detail">
+  <div class="topbar">
+    <button class="back-btn" onclick="go('s-home')">←</button>
+    <div class="topbar-col">
+      <h1 id="detail-title">Расход</h1>
+      <span class="sub" id="detail-date">...</span>
+    </div>
+    <button class="icon-btn" id="detail-delete-btn" onclick="confirmDeleteExpense()" title="Удалить" style="display:none;color:var(--danger);">🗑</button>
+  </div>
+  <div class="content" id="expense-detail-content">
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SCREEN: settlement (who owes whom) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="screen" id="s-settlement">
+  <div class="topbar">
+    <div class="topbar-col">
+      <h1>💸 Итоги расхода</h1>
+      <span class="sub" id="settlement-desc"></span>
+    </div>
+  </div>
+  <div class="content" id="settlement-content"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- MODALS -->
+<!-- ═══════════════════════════════════════════ -->
+<!-- Dispute modal -->
+<div class="modal-overlay" id="modal-dispute">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Оспорить долг</div>
+    <div style="font-size:14px;color:var(--text2);margin-bottom:16px;">Укажите причину несогласия</div>
+    <div class="input-group">
+      <textarea class="input" id="dispute-reason" rows="3" placeholder="Я не ел этого блюда / неверная сумма..." style="resize:none;"></textarea>
+    </div>
+    <button class="btn btn-danger" onclick="submitDispute()" style="margin-bottom:10px;">Отправить</button>
+    <button class="btn btn-secondary" onclick="closeModal('modal-dispute')">Отмена</button>
+  </div>
+</div>
+
+<!-- Discount modal -->
+<div class="modal-overlay" id="modal-discount">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Скидка участнику</div>
+    <div style="font-size:14px;color:var(--text2);margin-bottom:16px;" id="discount-member-name">Имя участника</div>
+    <div class="slider-wrap">
+      <div class="row-between" style="margin-bottom:8px;">
+        <span style="font-size:13px;color:var(--text2);">Скидка</span>
+        <span style="font-size:16px;font-weight:700;color:var(--accent);" id="discount-pct-label">0%</span>
+      </div>
+      <input type="range" id="discount-slider" min="0" max="100" value="0" oninput="updateDiscountLabel(this.value)">
+      <div style="font-size:13px;color:var(--text2);margin-top:8px;">Итоговая сумма: <b id="discount-amount-label">0 ₸</b></div>
+    </div>
+    <button class="btn btn-primary" onclick="applyDiscount()" style="margin-top:16px;margin-bottom:10px;">Применить</button>
+    <button class="btn btn-secondary" onclick="closeModal('modal-discount')">Отмена</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+</div><!-- phone-wrap -->
+
+<script>
+// ════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════
+let db = null, auth = null;
+let currentUser = null;      // Firebase user
+let userDoc = null;          // Firestore user document
+let teamDoc = null;          // Firestore team document
+let teamMembers = [];        // [{uid, name, phone}]
+let unsubscribers = [];      // Firestore listeners to clean up
+
+// Current expense being created
+let currentExpense = {
+  type: null,           // 'receipt' | 'general'
+  desc: '',
+  total: 0,
+  payerId: '',
+  payerName: '',
+  items: [],            // receipt items
+  splitType: 'equal',   // general: 'equal' | 'custom'
+  participants: [],     // [{uid, name}]
+  customShares: {},     // uid -> share count
+  dishSelections: {},   // uid -> {itemIdx -> 'full'|'half'|'none'}
+};
+
+// Active expense for detail / dispute
+let activeExpenseId = null;
+let activeExpenseData = null;
+let discountTargetUid = null;
+let discountOrigAmount = 0;
+
+// ════════════════════════════════════════════════
+// FIREBASE INIT
+// ════════════════════════════════════════════════
+// ─── ONESIGNAL CONFIG ─────────────────────────────────────────────────────────
+// Зарегистрируйся на onesignal.com → создай Web-приложение → скопируй ключи:
+const ONESIGNAL_APP_ID  = '0860384e-5189-4dc4-b87a-ea0932d2694d';
+const ONESIGNAL_REST_KEY = 'os_v2_app_bbqdqtsrrfg4jod25ietfutjjvik2pfs4dluhzfpkkcs46fvcjhr62wjh6wayfksxa7pa5xwf7hmaigpm4uwdgmfneve6sfmite33ti';
+// ─────────────────────────────────────────────────────────────────────────────
+
+function initFirebase(config) {
+  if (firebase.apps.length > 0) {
+    // Уже инициализировано — не удаляем, иначе теряется сессия
+    db = firebase.firestore();
+    auth = firebase.auth();
+    auth.onAuthStateChanged(handleAuthChange);
+    return;
+  }
+  firebase.initializeApp(config);
+  db = firebase.firestore();
+  auth = firebase.auth();
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+  auth.onAuthStateChanged(handleAuthChange);
+}
+
+// Инициализация OneSignal и запрос разрешения на уведомления
+async function requestNotifPermission() {
+  try {
+    if (!ONESIGNAL_APP_ID || ONESIGNAL_APP_ID === 'YOUR_ONESIGNAL_APP_ID') return;
+    if (!window.OneSignalDeferred) return;
+    window.OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.init({
+        appId: ONESIGNAL_APP_ID,
+        serviceWorkerPath: '/OneSignalSDKWorker.js',
+        welcomeNotification: { disable: true },
+        notifyButton: { enable: false }
+      });
+      // Привязываем Firebase UID как External User ID для адресной отправки
+      if (currentUser) {
+        await OneSignal.login(currentUser.uid);
+      }
+      // Запрашиваем разрешение через slidedown (v16 API)
+      try {
+        const permission = OneSignal.Notifications.permission;
+        if (!permission) {
+          await OneSignal.Slidedown.promptPush({
+            force: true
+          });
+        }
+      } catch(pe) {
+        // Fallback: прямой запрос браузера
+        try { await OneSignal.Notifications.requestPermission(); } catch(e2) {}
+      }
+    });
+  } catch(e) {
+    console.warn('OneSignal init error:', e.message);
+  }
+}
+
+// Отправить push через OneSignal по Firebase UID получателя
+async function sendFcmPush(targetUid, title, body) {
+  if (!ONESIGNAL_APP_ID || ONESIGNAL_APP_ID === 'YOUR_ONESIGNAL_APP_ID') return;
+  try {
+    await fetch('https://onesignal.com/api/v1/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Basic ' + ONESIGNAL_REST_KEY
+      },
+      body: JSON.stringify({
+        app_id:           ONESIGNAL_APP_ID,
+        include_aliases:  { external_id: [targetUid] },
+        target_channel:   'push',
+        headings:         { en: title  || 'MostPay 💸' },
+        contents:         { en: body   || '' },
+        url:              'https://cheerful-gnome-284485.netlify.app'
+      })
+    });
+  } catch(e) {
+    console.warn('OneSignal push error:', e.message);
+  }
+}
+
+function saveFirebaseConfig() {
+  const cfg = {
+    apiKey: v('fb-apiKey'),
+    authDomain: v('fb-authDomain'),
+    projectId: v('fb-projectId'),
+    storageBucket: v('fb-storageBucket'),
+    messagingSenderId: v('fb-messagingSenderId'),
+    appId: v('fb-appId'),
+  };
+  if (!cfg.apiKey || !cfg.projectId) {
+    showEl('fb-error', 'Заполните хотя бы API Key и Project ID');
+    return;
+  }
+  localStorage.setItem('sc_firebase_config', JSON.stringify(cfg));
+  hideEl('fb-error');
+  try { initFirebase(cfg); go('s-auth'); }
+  catch(e) { showEl('fb-error', 'Ошибка: ' + e.message); }
+}
+
+function resetFirebaseConfig() {
+  localStorage.removeItem('sc_firebase_config');
+  doLogout();
+}
+
+// ════════════════════════════════════════════════
+// AUTH STATE
+// ════════════════════════════════════════════════
+async function handleAuthChange(user) {
+  if (!user) { go('s-auth'); return; }
+  currentUser = user;
+  try {
+    const snap = await db.collection('users').doc(user.uid).get();
+    if (!snap.exists) { go('s-auth'); return; }
+    userDoc = snap.data();
+    if (!userDoc.teamId) { go('s-team-setup'); return; }
+    // Load team
+    const teamSnap = await db.collection('teams').doc(userDoc.teamId).get();
+    if (!teamSnap.exists) { go('s-team-setup'); return; }
+    teamDoc = { id: teamSnap.id, ...teamSnap.data() };
+    teamMembers = teamDoc.members || [];
+    startHomeListeners();
+    updateProfileUI();
+    go('s-home');
+    // Request push notification permission (silent if already granted)
+    setTimeout(requestNotifPermission, 1500);
+    // Check for app updates in background
+    setTimeout(checkForAppUpdate, 3000);
+  } catch(e) { console.error(e); go('s-auth'); }
+}
+
+async function checkForAppUpdate() {
+  try {
+    const r = await fetch('/mostpay/version.txt?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const ver = (await r.text()).trim();
+    const stored = localStorage.getItem('mostpay_ver');
+    if (stored && stored !== ver) {
+      // Новая версия — показываем баннер
+      const banner = document.createElement('div');
+      banner.id = 'update-banner';
+      banner.style.cssText = [
+        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
+        'background:#2196F3', 'color:#fff', 'padding:12px 18px', 'border-radius:12px',
+        'box-shadow:0 4px 16px rgba(0,0,0,.25)', 'z-index:9999',
+        'font-size:14px', 'display:flex', 'align-items:center', 'gap:10px',
+        'max-width:320px', 'width:90%'
+      ].join(';');
+      banner.innerHTML =
+        '<span>🔄 Доступна новая версия</span>' +
+        '<button onclick="location.reload(true)" style="background:#fff;color:#2196F3;border:none;' +
+        'padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:700;flex-shrink:0">Обновить</button>';
+      document.body.appendChild(banner);
+    }
+    localStorage.setItem('mostpay_ver', ver);
+  } catch(e) { /* тихо игнорируем */ }
+}
+
+// ════════════════════════════════════════════════
+// AUTH ACTIONS
+// ════════════════════════════════════════════════
+function phoneToEmail(phone) {
+  return phone.replace(/\D/g, '') + '@splitcheck.app';
+}
+
+async function doRegister() {
+  const name = v('reg-name').trim();
+  const phone = v('reg-phone').trim();
+  const pass = v('reg-pass');
+  if (!name || !phone || !pass) { showEl('reg-error','Заполните все поля'); return; }
+  if (pass.length < 6) { showEl('reg-error','Пароль минимум 6 символов'); return; }
+  hideEl('reg-error');
+  try {
+    const cred = await auth.createUserWithEmailAndPassword(phoneToEmail(phone), pass);
+    await db.collection('users').doc(cred.user.uid).set({ name, phone, teamId: null, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    // handleAuthChange will fire automatically
+  } catch(e) {
+    showEl('reg-error', firebaseErrMsg(e));
+  }
+}
+
+async function doLogin() {
+  const phone = v('login-phone').trim();
+  const pass = v('login-pass');
+  if (!phone || !pass) { showEl('login-error','Заполните все поля'); return; }
+  hideEl('login-error');
+  try {
+    await auth.signInWithEmailAndPassword(phoneToEmail(phone), pass);
+  } catch(e) {
+    showEl('login-error', firebaseErrMsg(e));
+  }
+}
+
+async function doLogout() {
+  unsubscribers.forEach(u => u());
+  unsubscribers = [];
+  currentUser = null; userDoc = null; teamDoc = null; teamMembers = [];
+  if (auth) await auth.signOut();
+  go('s-auth');
+}
+
+function firebaseErrMsg(e) {
+  const codes = {
+    'auth/email-already-in-use': 'Этот телефон уже зарегистрирован',
+    'auth/user-not-found': 'Пользователь не найден',
+    'auth/wrong-password': 'Неверный пароль',
+    'auth/invalid-email': 'Неверный формат',
+    'auth/weak-password': 'Пароль слишком простой',
+    'auth/too-many-requests': 'Слишком много попыток, попробуйте позже',
+  };
+  return codes[e.code] || e.message;
+}
+
+// ════════════════════════════════════════════════
+// TEAM
+// ════════════════════════════════════════════════
+function genCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function createTeam() {
+  const name = v('team-name').trim();
+  if (!name) { showEl('team-create-error','Введите название'); return; }
+  hideEl('team-create-error');
+  const code = genCode();
+  const member = { uid: currentUser.uid, name: userDoc.name, phone: userDoc.phone };
+  try {
+    const ref = await db.collection('teams').add({
+      name, code, members: [member],
+      createdBy: currentUser.uid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection('users').doc(currentUser.uid).update({ teamId: ref.id });
+    userDoc.teamId = ref.id;
+    teamDoc = { id: ref.id, name, code, members: [member] };
+    teamMembers = [member];
+    startHomeListeners();
+    updateProfileUI();
+    go('s-home');
+  } catch(e) { showEl('team-create-error', e.message); }
+}
+
+async function joinTeam() {
+  const code = v('join-code').trim();
+  if (code.length < 6) { showEl('join-error','Введите 6-значный код'); return; }
+  hideEl('join-error');
+  try {
+    const snap = await db.collection('teams').where('code','==',code).limit(1).get();
+    if (snap.empty) { showEl('join-error','Команда не найдена'); return; }
+    const teamRef = snap.docs[0].ref;
+    const tData = snap.docs[0].data();
+    const member = { uid: currentUser.uid, name: userDoc.name, phone: userDoc.phone };
+    const exists = (tData.members || []).some(m => m.uid === currentUser.uid);
+    if (!exists) {
+      await teamRef.update({ members: firebase.firestore.FieldValue.arrayUnion(member) });
+    }
+    await db.collection('users').doc(currentUser.uid).update({ teamId: snap.docs[0].id });
+    userDoc.teamId = snap.docs[0].id;
+    teamDoc = { id: snap.docs[0].id, ...tData, members: [...(tData.members||[]), ...(exists?[]:[member])] };
+    teamMembers = teamDoc.members;
+    startHomeListeners();
+    updateProfileUI();
+    go('s-home');
+    addNotif(`${userDoc.name} присоединился к команде`, 'team');
+  } catch(e) { showEl('join-error', e.message); }
+}
+
+function copyInviteCode() {
+  if (!teamDoc) return;
+  navigator.clipboard.writeText(teamDoc.code).then(() => toast('Код скопирован!'));
+}
+
+// ════════════════════════════════════════════════
+// HOME LISTENERS (real-time)
+// ════════════════════════════════════════════════
+function startHomeListeners() {
+  unsubscribers.forEach(u => u()); unsubscribers = [];
+  if (!teamDoc) return;
+
+  // Expenses listener (сортировка на клиенте — не нужен индекс)
+  const unsub1 = db.collection('expenses')
+    .where('teamId','==',teamDoc.id)
+    .limit(50)
+    .onSnapshot(snap => {
+      const expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a,b) => {
+          const ta = a.createdAt ? (a.createdAt.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime()) : 0;
+          const tb = b.createdAt ? (b.createdAt.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime()) : 0;
+          return tb - ta;
+        });
+      renderHomeTab(expenses);
+    }, e => { console.error(e); renderHomeTab([]); });
+
+  // Notifications listener
+  const unsub2 = db.collection('notifs')
+    .where('teamId','==',teamDoc.id)
+    .limit(30)
+    .onSnapshot(snap => {
+      const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a,b) => {
+          const ta = a.createdAt ? (a.createdAt.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime()) : 0;
+          const tb = b.createdAt ? (b.createdAt.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime()) : 0;
+          return tb - ta;
+        });
+      renderNotifs(notifs);
+    }, e => { console.error(e); renderNotifs([]); });
+
+  unsubscribers.push(unsub1, unsub2);
+}
+
+// ════════════════════════════════════════════════
+// HOME TABS
+// ════════════════════════════════════════════════
+let currentHomeTab = 'expenses';
+let cachedExpenses = [];
+
+function switchHomeTab(tab) {
+  currentHomeTab = tab;
+  ['expenses','settle','history'].forEach(t => {
+    el('htab-'+t).classList.toggle('active', t===tab);
+  });
+  renderHomeTab(cachedExpenses);
+}
+
+function renderHomeTab(expenses) {
+  cachedExpenses = expenses;
+  const container = el('home-tab-content');
+
+  if (currentHomeTab === 'expenses') {
+    renderExpensesList(container, expenses.filter(e => e.status !== 'settled'));
+  } else if (currentHomeTab === 'settle') {
+    renderSettleTab(container, expenses);
+  } else {
+    renderExpensesList(container, expenses.filter(e => e.status === 'settled'));
+  }
+  updateBalanceSummary(expenses);
+}
+
+function renderExpensesList(container, expenses) {
+  if (!expenses.length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">🧾</div><div class="empty-text">Нет расходов</div><div class="empty-sub">Нажмите + чтобы добавить</div></div>`;
+    return;
+  }
+  container.innerHTML = `<div class="card">${expenses.map(e => expenseItemHTML(e)).join('')}</div>`;
+}
+
+function expenseItemHTML(e) {
+  const icon = e.type === 'receipt' ? '🧾' : '🛒';
+  const bg = e.type === 'receipt' ? 'var(--accent-light)' : 'var(--purple-light)';
+  const dt = e.createdAt ? fmtDate(e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt)) : '';
+  const mySelection = (e.selections||{})[currentUser.uid];
+  let amtHtml = '';
+  if (mySelection) {
+    const share = mySelection.myShare || 0;
+    const color = e.payerId === currentUser.uid ? 'var(--success)' : 'var(--danger)';
+    const sign = e.payerId === currentUser.uid ? '+' : '-';
+    amtHtml = `<span style="font-size:14px;font-weight:700;color:${color};">${sign}${fmt(share)}</span>`;
+  }
+  return `<div class="expense-item" onclick="openExpenseDetail('${e.id}')">
+    <div class="expense-icon" style="background:${bg};">${icon}</div>
+    <div style="flex:1;">
+      <div style="font-size:14px;font-weight:600;">${esc(e.desc || 'Расход')}</div>
+      <div style="font-size:12px;color:var(--text2);">${dt} · ${esc(e.payerName||'')}</div>
+    </div>
+    <div style="text-align:right;">
+      ${amtHtml}
+      <div style="font-size:13px;color:var(--text2);">${fmt(e.total)} ₸</div>
+    </div>
+  </div>`;
+}
+
+function renderSettleTab(container, expenses) {
+  // Compute who owes whom
+  const balances = {}; // uid -> net (positive = owed to them, negative = they owe)
+  expenses.filter(e => e.status !== 'settled').forEach(e => {
+    const sels = e.selections || {};
+    Object.entries(sels).forEach(([uid, sel]) => {
+      if (uid === e.payerId) return;
+      const share = sel.myShare || 0;
+      if (!sel.paid && !sel.disputed) {
+        balances[uid] = (balances[uid] || 0) - share;
+        balances[e.payerId] = (balances[e.payerId] || 0) + share;
+      }
+    });
+  });
+
+  // Generate settlements
+  const debtors = Object.entries(balances).filter(([,v]) => v < 0).map(([uid,v]) => ({uid,amount:-v}));
+  const creditors = Object.entries(balances).filter(([,v]) => v > 0).map(([uid,v]) => ({uid,amount:v}));
+
+  if (!debtors.length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">🎉</div><div class="empty-text">Все расчёты закрыты!</div></div>`;
+    return;
+  }
+
+  const getName = uid => {
+    const m = teamMembers.find(m => m.uid === uid);
+    return m ? m.name : uid.slice(0,6);
+  };
+
+  let html = '<div class="card"><div class="card-title">Кто кому должен</div>';
+  debtors.forEach(d => {
+    creditors.forEach(c => {
+      if (d.amount <= 0 || c.amount <= 0) return;
+      const pay = Math.min(d.amount, c.amount);
+      const isMe = d.uid === currentUser.uid;
+      html += `<div class="settle-row">
+        <div class="avatar av-${isMe?'red':'teal'}" style="background:var(--${isMe?'danger':'accent'}-light);color:var(--${isMe?'danger':'accent'});">${getName(d.uid)[0]}</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:600;">${esc(getName(d.uid))} → ${esc(getName(c.uid))}</div>
+          <div style="font-size:12px;color:var(--text2);">Долг</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:15px;font-weight:700;color:var(--danger);">${fmt(pay)} ₸</div>
+          ${isMe ? `<button class="btn btn-sm btn-primary" style="margin-top:6px;" onclick="markPaid('${c.uid}',${pay})">Оплатил</button>` : ''}
+        </div>
+      </div>`;
+      d.amount -= pay; c.amount -= pay;
+    });
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function updateBalanceSummary(expenses) {
+  let iOwe = 0, iReceive = 0;
+  expenses.filter(e => e.status !== 'settled').forEach(e => {
+    const sels = e.selections || {};
+    Object.entries(sels).forEach(([uid, sel]) => {
+      if (sel.paid || sel.disputed) return;
+      const share = sel.myShare || 0;
+      if (uid === currentUser.uid && e.payerId !== currentUser.uid) iOwe += share;
+      if (e.payerId === currentUser.uid && uid !== currentUser.uid) iReceive += share;
+    });
+  });
+
+  const balance = iReceive - iOwe;
+  el('home-balance').textContent = fmt(Math.abs(balance)) + ' ₸';
+  if (balance < 0) {
+    el('home-balance').classList.add('amount-red'); el('home-balance').classList.remove('amount-green');
+    el('home-balance-sub').textContent = `Вы должны ${fmt(-balance)} ₸`;
+    el('home-owe-chip').style.display = '';
+    el('home-receive-chip').style.display = 'none';
+  } else if (balance > 0) {
+    el('home-balance').classList.add('amount-green'); el('home-balance').classList.remove('amount-red');
+    el('home-balance-sub').textContent = `Вам должны ${fmt(balance)} ₸`;
+    el('home-receive-chip').style.display = '';
+    el('home-owe-chip').style.display = 'none';
+  } else {
+    el('home-balance').classList.remove('amount-red','amount-green');
+    el('home-balance-sub').textContent = 'Нет долгов 🎉';
+    el('home-owe-chip').style.display = 'none';
+    el('home-receive-chip').style.display = 'none';
+  }
+}
+
+// ════════════════════════════════════════════════
+// NOTIFICATION SOUND
+// ════════════════════════════════════════════════
+let _prevUnreadCount = 0;
+let _notifsInitialized = false;
+
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Два тона — приятный "дзынь"
+    [880, 1100].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.4);
+      osc.start(ctx.currentTime + i * 0.12);
+      osc.stop(ctx.currentTime + i * 0.12 + 0.4);
+    });
+  } catch(e) { /* браузер заблокировал — молча игнорируем */ }
+}
+
+// ════════════════════════════════════════════════
+// NOTIFICATIONS
+// ════════════════════════════════════════════════
+function renderNotifs(allNotifs) {
+  // Filter: show team-wide notifs + notifs targeted specifically at current user
+  const notifs = allNotifs.filter(n => !n.targetUid || n.targetUid === currentUser.uid);
+
+  const badge = el('notif-badge');
+  const unread = notifs.filter(n => !n.readBy || !n.readBy.includes(currentUser.uid)).length;
+
+  // Play sound on NEW unread arrivals OR on first load if there are unread notifs (targeted)
+  if (!_notifsInitialized && unread > 0) {
+    // First load with unread — play softer single tone
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine'; osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+    } catch(e) {}
+  } else if (_notifsInitialized && unread > _prevUnreadCount) {
+    playNotifSound();
+  }
+  _prevUnreadCount = unread;
+  _notifsInitialized = true;
+
+  if (unread > 0) { badge.textContent = unread; badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
+
+  const container = el('notifs-list');
+  if (!notifs.length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">🔔</div><div class="empty-text">Нет уведомлений</div></div>`;
+    return;
+  }
+  container.innerHTML = notifs.map(n => {
+    const read = n.readBy && n.readBy.includes(currentUser.uid);
+    const dt = n.createdAt ? fmtDate(n.createdAt.toDate ? n.createdAt.toDate() : new Date(n.createdAt)) : '';
+    const isPersonal = !!n.targetUid;
+    return `<div class="notif-item" style="${isPersonal && !read ? 'background:var(--warn-light);border-radius:8px;padding:4px 6px;' : ''}">
+      <div class="notif-dot${read?' read':''}"></div>
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:${read?'400':'600'};">${esc(n.text||'')}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px;">${dt}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function markAllNotifsRead() {
+  if (!teamDoc) return;
+  const snap = await db.collection('notifs').where('teamId','==',teamDoc.id).get();
+  const batch = db.batch();
+  snap.docs.forEach(d => {
+    if (!d.data().readBy || !d.data().readBy.includes(currentUser.uid)) {
+      batch.update(d.ref, { readBy: firebase.firestore.FieldValue.arrayUnion(currentUser.uid) });
+    }
+  });
+  await batch.commit();
+  toast('Всё прочитано');
+}
+
+async function addNotif(text, type = 'expense', targetUid = null) {
+  if (!teamDoc || !db) return;
+  const data = {
+    teamId: teamDoc.id, text, type,
+    createdBy: currentUser.uid,
+    readBy: [currentUser.uid],   // creator already read it
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  if (targetUid) data.targetUid = targetUid;
+  await db.collection('notifs').add(data);
+
+  // Send push to target user via OneSignal (uses Firebase UID as external_id)
+  if (targetUid) {
+    sendFcmPush(targetUid, 'MostPay 💸', text).catch(e => console.warn('Push error:', e.message));
+  }
+}
+
+// Send personal notification to each debtor when expense created
+async function notifyDebtors(debts, expenseDesc) {
+  for (const d of debts) {
+    if (d.fromUid === currentUser.uid) continue; // don't notify yourself
+    const text = `💸 Вы должны заплатить ${fmt(d.amount)} ₸ → ${esc(d.to)} за «${expenseDesc}»`;
+    await addNotif(text, 'expense', d.fromUid);
+  }
+}
+
+// ════════════════════════════════════════════════
+// RECEIPT SCAN & OCR
+// ════════════════════════════════════════════════
+function onReceiptSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  el('receipt-preview').src = url;
+  el('scan-area').style.display = 'none';
+  el('ocr-progress-area').style.display = '';
+  doRealOCR(file);
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function parseReceiptText(text) {
+  // ── Step 1: normalize raw lines ──────────────────────────────────────
+  const rawLines = text.split(/[\r\n]+/).map(l => l.trim()).filter(l => l.length > 0);
+
+  // ── Step 2: re-join wrapped words ────────────────────────────────────
+  // Receipt printers wrap long names: "Казан кабоб из баранин\nы 2 11 000,00"
+  // If a line is short (≤7 chars), all letters, no digits, and the previous
+  // line ends with a letter (was cut mid-word), glue them together.
+  const lines = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    if (
+      lines.length > 0 &&
+      line.length <= 7 &&
+      /^[а-яёА-ЯЁa-zA-Z]+$/.test(line) &&
+      /[а-яёА-ЯЁa-zA-Z]$/.test(lines[lines.length - 1])
+    ) {
+      lines[lines.length - 1] += line; // rejoin hyphenated/wrapped word
+    } else {
+      lines.push(line);
+    }
+  }
+
+  const items = [];
+  let total         = 0;   // grand total (ИТОГО К ОПЛАТЕ)
+  let subtotal      = 0;   // pre-service subtotal (Полная сумма / Подытог)
+  let serviceCharge = 0;   // service fee line (Сервисный сбор / Обслуживание)
+
+  // Grand total markers (ИТОГО К ОПЛАТЕ etc.)
+  const grandTotalPattern = /итого|к\s*оплат|к\s*0плат|total|оплат[её]/i;
+
+  // Subtotal markers (Полная сумма / Подытог — before service charge)
+  // Broad: catches П0лная, П0дная, Полная, Подная with any OCR noise
+  const subtotalPattern = /подытог|п[о0оО][лд][нн][аaа4][яяa]?\s*сум|полная|подная/i;
+
+  // Service charge line markers — detect before skipping
+  const servicePattern = /сервис|обслуж|service\s*charge/i;
+
+  // Combined: any summary line
+  const totalPattern = new RegExp(grandTotalPattern.source + '|' + subtotalPattern.source, 'i');
+
+  // Normalize Cyrillic letters that OCR confuses with digits in price strings
+  const normOCRDigits = s => s
+    .replace(/[ОоО]/g, '0')   // Cyrillic О → 0
+    .replace(/[Зз]/g, '3')    // Cyrillic З → 3
+    .replace(/б/g, '6')       // Cyrillic б → 6
+    .replace(/[Іі]/g, '1');   // Cyrillic І → 1
+
+  // Non-food lines to skip (service charge NOT here — we auto-compute it)
+  const skipPattern = /спасибо|кассир|инн|ккт|офд|дата|время|стол|зал|официант|открыт|пречек|надбавка|обслуж|сервис|скидка|бонус|баллы|налог|ндс|наимен|гостев|павлин|рзаев|ануар|летка|тохта|мавлин|наличн|сдача|безнал|оплач|сумма оплат|чек|receipt/i;
+
+  // Parse Kazakhstan-style price: "4 400,00" → 4400, "11 000,00" → 11000
+  // Pattern: digits, then optional (space + exactly 3 digits) groups, then comma+2 decimals
+  // e.g. "2 700,00" → \d+(?:\s\d{3})* matches "2 700"; "11 000,00" → "11 000"
+  // This prevents greedily eating the qty digit: "1 2 700,00" → price="2 700"=2700, not "12700"
+  const PRICE_RE = /\s+(\d+(?:\s\d{3})*)[,.](\d{2})\s*$/;
+  const TOTAL_PRICE_RE = /(\d+(?:\s\d{3})*)[,.](\d{2})\s*$/;
+  const parsePrice = (intPart, decPart) =>
+    parseFloat(intPart.replace(/\s/g, '') + '.' + decPart);
+
+  let pendingTotalIsSubtotal = null; // if a total-label line had no price, wait for next line
+
+  for (let li = 0; li < lines.length; li++) {
+    const rawLine = lines[li];
+    // ── OCR normalisation: digit 0 ↔ Cyrillic О in known keywords ───
+    const line = rawLine
+      .replace(/[ИI][ТT][О0][ГГ][О0]/gi, 'ИТОГО')
+      .replace(/[О0]ПЛА[ТТ]/gi, 'ОПЛАТ')
+      .replace(/[ПП][О0]Д[ЫЫ][ТТ][О0][ГГ]/gi, 'ПОДЫТОГ')
+      .replace(/(\d)\.\s+(\d{3}[,.])/g, '$1 $2'); // fix OCR "11. 000,00" → "11 000,00"
+
+    if (line.length < 2) continue;
+    if (/^[-*=.]{3,}/.test(line)) continue;       // separator lines "----"
+    if (/^[+]/.test(line)) continue;               // "+5 145,00" surcharge lines
+    if (/^М\/Д|сметан/i.test(line)) continue;     // modifier lines "М/Д СО СМЕТАНОЙ"
+
+    // ── Handle split-line totals: price was on previous line, but number is on this line ──
+    if (pendingTotalIsSubtotal !== null) {
+      const pm = line.match(TOTAL_PRICE_RE) || normOCRDigits(line).match(TOTAL_PRICE_RE);
+      if (pm && /^\s*[\d\s]+[,.]\d{2}\s*$/.test(line)) {
+        const n = parsePrice(pm[1], pm[2]);
+        if (n > 500 && n < 10000000) {
+          if (pendingTotalIsSubtotal) { if (n > subtotal) subtotal = n; }
+          else { if (n > total) total = n; }
+        }
+      }
+      pendingTotalIsSubtotal = null;
+    }
+
+    // ── Detect totals FIRST (before skipPattern, so НДС on same line won't block it) ──
+    if (totalPattern.test(line)) {
+      // Try standard match first; if it fails, normalize Cyrillic digit look-alikes and retry
+      let m = line.match(TOTAL_PRICE_RE);
+      if (!m) {
+        const lineD = normOCRDigits(line);
+        m = lineD.match(TOTAL_PRICE_RE);
+      }
+      if (m) {
+        const n = parsePrice(m[1], m[2]);
+        if (n > 0 && n < 10000000) {
+          if (subtotalPattern.test(line)) {
+            // Полная сумма / Подытог — pre-service subtotal
+            if (n > subtotal) subtotal = n;
+          } else {
+            // ИТОГО К ОПЛАТЕ — grand total
+            if (n > total) total = n;
+          }
+        }
+      } else {
+        // No price found on this line — maybe it's on the next line
+        pendingTotalIsSubtotal = subtotalPattern.test(line);
+      }
+      continue;
+    }
+
+    // ── Detect service charge (before skipPattern so it isn't dropped) ──
+    if (servicePattern.test(line)) {
+      let m = line.match(TOTAL_PRICE_RE);
+      if (!m) {
+        const lineD = normOCRDigits(line);
+        m = lineD.match(TOTAL_PRICE_RE);
+      }
+      if (m) {
+        const n = parsePrice(m[1], m[2]);
+        if (n > 0 && n < 100000) serviceCharge = n;
+      }
+      continue; // still skip from items — we'll add it as a synthetic item below
+    }
+
+    if (skipPattern.test(line)) continue;
+
+    // ── Extract price from end of line ────────────────────────────────
+    // Requires "N NNN,NN" format — the thousands-space pattern prevents
+    // eating the qty digit as part of the price
+    let price, beforePrice;
+    const priceComma = line.match(PRICE_RE);
+    if (priceComma) {
+      price = parsePrice(priceComma[1], priceComma[2]);
+      beforePrice = line.slice(0, line.length - priceComma[0].length).trim();
+    } else {
+      // Fallback: plain integer ≥ 3 digits at end (no decimals)
+      const priceInt = line.match(/\s+(\d{3,})\s*$/);
+      if (!priceInt) continue;
+      price = parseFloat(priceInt[1]);
+      beforePrice = line.slice(0, line.length - priceInt[0].length).trim();
+    }
+
+    if (isNaN(price) || price <= 0 || price > 500000) continue;
+    if (!beforePrice) continue;
+
+    // ── Extract optional quantity before the price ────────────────────
+    // Format: "Name  qty"  where qty is 1–2 digit number ≤ 99
+    let name, qty;
+    let lowConfidence = false;
+    // Flag if price line had "11. 000,00" OCR artifact (period in number)
+    if (/\d\.\s+\d{3}[,.]/.test(rawLine)) lowConfidence = true;
+
+    const qtyM = beforePrice.match(/^(.+?)\s+(\d{1,2})\s*$/);
+    if (qtyM && parseInt(qtyM[2]) >= 1 && parseInt(qtyM[2]) <= 99) {
+      name = qtyM[1].trim();
+      qty  = parseInt(qtyM[2]);
+      // qty > 20: either OCR-doubled digit OR a receipt item code (not qty)
+      if (qty > 20) {
+        const qtyStr = String(qty);
+        if (qtyStr.length === 2 && qtyStr[0] === qtyStr[1]) {
+          const realQty = parseInt(qtyStr[0]);
+          if (realQty > 1 && price % realQty === 0) {
+            // Line total divides evenly → likely real qty doubled by OCR (e.g. "3"→"33")
+            qty = realQty;
+          } else {
+            // Not divisible → "33" is a dish code on the receipt, qty is actually 1
+            qty = 1;
+          }
+          lowConfidence = true;
+        } else {
+          continue; // genuine OCR noise, skip
+        }
+      }
+      // Receipt "Сумма" column is the LINE TOTAL, not unit price.
+      // Divide by qty to get unit price so recalc doesn't double-count.
+      if (qty > 1) price = Math.round(price / qty);
+    } else {
+      name = beforePrice;
+      qty  = 1;
+    }
+
+    if (name.length < 2) continue;
+    if (/^\d/.test(name)) continue;           // line started with a number, not a name
+    if (price < 100) continue;               // items under 100 ₸ are OCR artifacts
+
+    // Flag name-level OCR noise: stray hard/soft signs, lone Cyrillic consonants,
+    // Latin letters, trailing dot, or single-char appendages at end of name
+    if (/[ЪъЬьФф]\s*$/.test(name) ||   // hard/soft sign artifact at end
+        /\.\s*$/.test(name) ||           // trailing dot (e.g. "Лепешка.")
+        /\s[A-Za-zФфЫыЪъ]\s*$/.test(name) || // isolated Latin/weird char at end
+        /[A-Za-z]/.test(name)            // any Latin letter mixed into Cyrillic name
+    ) lowConfidence = true;
+
+    items.push({ name, qty, price, lowConfidence });
+  }
+
+  // ── Second-pass fallback: hunt for subtotal/total numbers missed above ─────────
+  // Apply if we found serviceCharge but subtotal is still unknown.
+  // Scan every line with Cyrillic-digit normalisation and looser patterns.
+  if (subtotal === 0 || total === 0) {
+    for (const rawLine of lines) {
+      // Full OCR normalisation: keywords + digit look-alikes in the whole line
+      let lineN = rawLine
+        .replace(/[ИI][ТT][О0][ГГ][О0]/gi, 'ИТОГО')
+        .replace(/[О0]ПЛА[ТТ]/gi, 'ОПЛАТ')
+        .replace(/[ПП][О0]Д[ЫЫ][ТТ][О0][ГГ]/gi, 'ПОДЫТОГ');
+      // Normalize Cyrillic digit look-alikes only in the trailing numeric portion
+      // (replace in the whole string — keyword positions already fixed above)
+      lineN = normOCRDigits(lineN);
+
+      if (subtotal === 0 && subtotalPattern.test(rawLine)) {
+        const m = lineN.match(TOTAL_PRICE_RE);
+        if (m) {
+          const n = parsePrice(m[1], m[2]);
+          if (n > 1000 && n < 10000000) subtotal = n;
+        }
+      }
+      if (total === 0 && grandTotalPattern.test(lineN)) {
+        const m = lineN.match(TOTAL_PRICE_RE);
+        if (m) {
+          const n = parsePrice(m[1], m[2]);
+          if (n > 1000 && n < 10000000) total = n;
+        }
+      }
+    }
+  }
+
+  // If grand total not found directly, reconstruct from subtotal + service charge
+  if (total === 0 && subtotal > 0 && serviceCharge > 0) total = subtotal + serviceCharge;
+  if (total === 0 && subtotal > 0) total = subtotal; // fallback: at least use subtotal
+
+  // Last resort: service charge found but nothing else — at least add service charge to items sum
+  if (total === 0 && serviceCharge > 0) {
+    const itemsSum = items.reduce((s, i) => s + (i.qty || 1) * i.price, 0);
+    if (itemsSum > 0) total = itemsSum + serviceCharge;
+  }
+
+  // Absolute last resort: brute-force scan the bottom 40% of receipt lines
+  // for the largest plausible total (works even if label and price are on different lines)
+  if (total === 0) {
+    const bottomLines = lines.slice(Math.max(0, Math.floor(lines.length * 0.6)));
+    let candidate = 0;
+    for (const l of bottomLines) {
+      // Skip lines that are clearly not totals
+      if (/инн|ккт|офд|дата|время|официант|открыт/i.test(l)) continue;
+      // Normalize Cyrillic digit look-alikes
+      const norm = normOCRDigits(l);
+      // Find all numeric sequences with optional thousands-space and decimal comma/dot
+      const numMatches = norm.match(/\d(?:[\d ]*\d)?[,.]?\d*/g) || [];
+      for (const nm of numMatches) {
+        const val = parseFloat(nm.replace(/\s/g, '').replace(',', '.'));
+        if (val >= 5000 && val < 2000000 && val > candidate) candidate = val;
+      }
+    }
+    if (candidate > 0) total = Math.round(candidate);
+  }
+
+  // Remove any item whose line price matches the subtotal or grand total
+  // (handles leaked "Полная сумма" / "ИТОГО" lines that OCR garbled past totalPattern)
+  const filteredItems = total > 0
+    ? items.filter(i => {
+        const lt = i.price * (i.qty || 1);
+        return Math.abs(lt - total) > 50 && (subtotal === 0 || Math.abs(lt - subtotal) > 50);
+      })
+    : items;
+
+  // Add service charge as a shared line item (directly detected from receipt)
+  if (serviceCharge > 0) {
+    filteredItems.push({ name: 'Сервисный сбор', qty: 1, price: serviceCharge, shared: true });
+  } else if (total > 0 && subtotal > 0 && total > subtotal) {
+    // Fallback: compute service charge as difference between grand total and subtotal
+    filteredItems.push({ name: 'Сервисный сбор', qty: 1, price: Math.round(total - subtotal), shared: true });
+  }
+
+  currentExpense.items = filteredItems;
+  currentExpense.total = total || filteredItems.reduce((s, i) => s + (i.qty || 1) * i.price, 0);
+
+  // ── Add "Нераспознано" gap item if items don't sum to total ──────────
+  // If OCR missed a line entirely (e.g. blurry spot on receipt), add a
+  // red placeholder so the user knows to check and fill it in manually.
+  if (total > 0) {
+    const itemsSum = filteredItems.reduce((s, i) => s + (i.qty || 1) * i.price, 0);
+    const gap = Math.round(total - itemsSum);
+    if (gap >= 500) {  // only add if gap is meaningful (≥ 500 ₸)
+      filteredItems.push({ name: '❓ Нераспознано — проверьте чек', qty: 1, price: gap, lowConfidence: true, unrecognized: true });
+    }
+  }
+}
+
+async function doRealOCR(file) {
+  const fill = el('ocr-fill');
+  const status = el('ocr-status');
+  const finish = () => {
+    const ocrTotal = currentExpense.total; // save BEFORE renderReceiptItems() calls recalcReceipt() which overwrites it
+    renderReceiptItems();                   // draws items (internally calls recalcReceipt → resets currentExpense.total to itemsSum)
+    el('receipt-total-input').value = ocrTotal || '';  // restore OCR-detected total
+    recalcReceipt();                        // now recalc with correct total in input
+    populatePayerSelect('receipt-payer');
+    go('s-receipt-verify');
+  };
+  try {
+    status.textContent = 'Подготовка...';
+    fill.style.width = '10%';
+
+    const worker = await Tesseract.createWorker('rus', 1, {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round(10 + m.progress * 75);
+          fill.style.width = pct + '%';
+          status.textContent = 'Распознавание: ' + Math.round(m.progress * 100) + '%';
+        } else if (m.status === 'loading language traineddata') {
+          status.textContent = 'Загрузка языковых данных...';
+          fill.style.width = '20%';
+        }
+      }
+    });
+
+    status.textContent = 'Извлечение текста...';
+    fill.style.width = '85%';
+    const { data: { text } } = await worker.recognize(file);
+    await worker.terminate();
+
+    status.textContent = 'Извлечение позиций...';
+    fill.style.width = '95%';
+    console.log('=== RAW OCR ===\n' + text + '\n=== END ===');
+    parseReceiptText(text);
+    console.log('=== ITEMS ===', JSON.stringify(currentExpense.items.map(i=>i.name+'×'+i.qty+'='+i.price)));
+    console.log('=== TOTAL ===', currentExpense.total);
+
+    fill.style.width = '100%';
+    status.textContent = 'Готово!';
+    setTimeout(finish, 400);
+  } catch(e) {
+    console.warn('Tesseract error:', e);
+    status.textContent = 'Ошибка OCR — введите позиции вручную';
+    fill.style.width = '100%';
+    currentExpense.items = [];
+    currentExpense.total = 0;
+    setTimeout(finish, 1000);
+  }
+}
+
+function renderReceiptItems() {
+  const list = el('receipt-items-list');
+  list.innerHTML = currentExpense.items.map((item, idx) => {
+    const shared = !!item.shared;
+    const bad = !!item.lowConfidence;
+    const unrecognized = !!item.unrecognized;
+    // Low-confidence: orange border + light red background
+    const rowStyle = unrecognized
+      ? 'flex-wrap:wrap;gap:4px;border:2px solid #e53935;border-radius:12px;padding:8px;background:rgba(229,57,53,0.06);'
+      : bad
+        ? 'flex-wrap:wrap;gap:4px;border:2px solid #FF6B35;border-radius:12px;padding:8px;background:rgba(255,107,53,0.06);'
+        : 'flex-wrap:wrap;gap:4px;';
+    const badgeHtml = unrecognized
+      ? `<span style="font-size:10px;color:#e53935;font-weight:700;letter-spacing:0.3px;">НЕ РАСПОЗНАНО</span>`
+      : bad
+        ? `<span style="font-size:10px;color:#FF6B35;font-weight:700;letter-spacing:0.3px;">⚠ ПРОВЕРЬТЕ</span>`
+        : '';
+    return `
+    <div class="receipt-row" id="rrow-${idx}" style="${rowStyle}">
+      ${badgeHtml ? `<div style="width:100%;margin-bottom:2px;">${badgeHtml}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:4px;width:100%;">
+        <input class="input" value="${esc(item.name)}" style="flex:1;padding:6px 8px;font-size:13px;${bad?'border-color:#FF6B35;':''}" oninput="updateItemName(${idx},this.value)">
+        <button onclick="toggleShared(${idx})" id="shared-btn-${idx}"
+          style="padding:4px 8px;border-radius:8px;font-size:11px;border:1.5px solid ${shared?'var(--accent)':'var(--border)'};background:${shared?'var(--accent)':'transparent'};color:${shared?'#fff':'var(--text2)'};cursor:pointer;white-space:nowrap;transition:all 0.15s;font-weight:600;">
+          🤝 Общая
+        </button>
+        <button class="del-btn" onclick="deleteReceiptItem(${idx})">✕</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;width:100%;padding-left:2px;">
+        <div class="qty-ctrl">
+          <button class="qty-btn" onclick="changeQty(${idx},-1)">−</button>
+          <span class="qty-num" id="qty-${idx}">${item.qty}</span>
+          <button class="qty-btn" onclick="changeQty(${idx},+1)">＋</button>
+        </div>
+        <span style="font-size:11px;color:var(--text3);">× шт</span>
+        <input class="input receipt-row-price" value="${item.price}" type="number" style="flex:1;padding:6px 8px;text-align:right;font-size:13px;${bad?'border-color:#FF6B35;':''}" oninput="updateItemPrice(${idx},this.value)">
+        <span style="font-size:12px;color:var(--text3);">₸</span>
+      </div>
+    </div>`;
+  }).join('');
+  recalcReceipt();
+}
+
+function toggleShared(idx) {
+  currentExpense.items[idx].shared = !currentExpense.items[idx].shared;
+  const shared = currentExpense.items[idx].shared;
+  const btn = el('shared-btn-' + idx);
+  btn.style.borderColor = shared ? 'var(--accent)' : 'var(--border)';
+  btn.style.background   = shared ? 'var(--accent)' : 'transparent';
+  btn.style.color        = shared ? '#fff' : 'var(--text2)';
+}
+
+function changeQty(idx, delta) {
+  currentExpense.items[idx].qty = Math.max(1, (currentExpense.items[idx].qty || 1) + delta);
+  el('qty-'+idx).textContent = currentExpense.items[idx].qty;
+  recalcReceipt();
+}
+function updateItemName(idx, v) { currentExpense.items[idx].name = v; }
+function updateItemPrice(idx, v) { currentExpense.items[idx].price = parseFloat(v) || 0; recalcReceipt(); }
+function deleteReceiptItem(idx) { currentExpense.items.splice(idx, 1); renderReceiptItems(); }
+function addReceiptItem() { currentExpense.items.push({ name: '', qty: 1, price: 0 }); renderReceiptItems(); }
+
+function recalcReceipt() {
+  const itemsTotal = currentExpense.items.reduce((s, i) => s + (i.qty || 1) * (i.price || 0), 0);
+  const receiptTotal = parseFloat(v('receipt-total-input')) || 0;
+
+  el('items-total-display').textContent = fmt(itemsTotal);
+  const calcDisplay = el('calc-total-display');
+  if (calcDisplay) calcDisplay.textContent = fmt(itemsTotal);
+
+  const card     = el('totals-card');
+  const diffEl   = el('diff-display');
+  const warnEl   = el('mismatch-warn');
+  const okEl     = el('match-ok');
+  // The "≠" / "=" divider between left and right totals
+  const divSign  = el('totals-sign');
+  const nextBtn  = el('receipt-next-btn');
+
+  if (receiptTotal > 0) {
+    el('receipt-total-display').textContent = fmt(receiptTotal);
+    const diff    = receiptTotal - itemsTotal;
+    const diffAbs = Math.abs(diff);
+    const mismatch = diffAbs > 1;
+
+    if (mismatch) {
+      // Paint card red
+      card.style.background   = '#fff1f2';
+      card.style.borderColor  = '#fca5a5';
+      diffEl.textContent = (diff > 0 ? '+' : '−') + fmt(diffAbs);
+      diffEl.style.color = '#dc2626';
+      if (divSign) { divSign.textContent = '≠'; divSign.style.color = '#dc2626'; }
+      warnEl.style.display = '';
+      okEl.style.display   = 'none';
+      if (nextBtn) { nextBtn.style.opacity = '0.45'; nextBtn.style.pointerEvents = 'none'; }
+    } else {
+      // Paint card green
+      card.style.background   = '#f0fdf4';
+      card.style.borderColor  = '#86efac';
+      diffEl.textContent = '✓';
+      diffEl.style.color = '#16a34a';
+      if (divSign) { divSign.textContent = '='; divSign.style.color = '#16a34a'; }
+      warnEl.style.display = 'none';
+      okEl.style.display   = '';
+      if (nextBtn) { nextBtn.style.opacity = ''; nextBtn.style.pointerEvents = ''; }
+    }
+  } else {
+    // No receipt total entered yet — neutral
+    card.style.background   = 'var(--bg2)';
+    card.style.borderColor  = 'transparent';
+    el('receipt-total-display').textContent = '—';
+    diffEl.textContent = '—';
+    diffEl.style.color = 'var(--text3)';
+    if (divSign) { divSign.textContent = '≠'; divSign.style.color = 'var(--text3)'; }
+    warnEl.style.display = 'none';
+    okEl.style.display   = 'none';
+    if (nextBtn) { nextBtn.style.opacity = ''; nextBtn.style.pointerEvents = ''; }
+  }
+
+  currentExpense.total = receiptTotal || itemsTotal;
+}
+
+// ════════════════════════════════════════════════
+// GENERAL EXPENSE (redesigned: multi-payer + smart calc)
+// ════════════════════════════════════════════════
+let genSplitType = 'equal';
+
+function openGeneralExpense() {
+  genSplitType = 'equal';
+  el('gen-desc').value = '';
+  el('gen-split-equal-btn').classList.add('active');
+  el('gen-split-custom-btn').classList.remove('active');
+  el('gen-custom-section').style.display = 'none';
+  el('gen-participants-section').style.display = '';
+  el('gen-calc-preview').style.display = 'none';
+  el('gen-calc-btn').style.display = '';
+  el('gen-total-display').textContent = '0 ₸';
+  currentExpense.total = 0;
+  // Default all members selected
+  teamMembers.forEach(m => { m._genSelected = true; m._genOwes = 0; });
+  renderGenPayers();
+  renderGenParticipants();
+  go('s-general-expense');
+}
+
+function renderGenPayers() {
+  const list = el('gen-payers-list');
+  list.innerHTML = teamMembers.map(m => `
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div class="avatar av-teal" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">${esc(m.name[0])}</div>
+      <div style="flex:1;font-size:14px;font-weight:500;">${esc(m.name)}${m.uid===currentUser.uid?' <span style="font-size:11px;color:var(--accent);">(Вы)</span>':''}</div>
+      <input class="input" type="number" id="gen-paid-${m.uid}" placeholder="0" min="0"
+             style="width:100px;padding:7px 10px;text-align:right;font-size:15px;font-weight:600;"
+             oninput="recalcGenTotal()">
+      <span style="font-size:13px;color:var(--text2);flex-shrink:0;">₸</span>
+    </div>`).join('');
+}
+
+function recalcGenTotal() {
+  let total = 0;
+  teamMembers.forEach(m => {
+    total += parseFloat(el('gen-paid-'+m.uid)?.value) || 0;
+  });
+  el('gen-total-display').textContent = fmt(total) + ' ₸';
+  currentExpense.total = total;
+  if (genSplitType === 'custom') updateCustomOwesTotal();
+  el('gen-calc-preview').style.display = 'none';
+}
+
+function renderGenParticipants() {
+  const list = el('gen-participants-list');
+  list.innerHTML = teamMembers.map(m => `
+    <div class="participant-row" style="padding:10px 0;" onclick="toggleGenParticipant('${m.uid}')">
+      <div class="check-circle checked" id="gen-pcheck-${m.uid}">✓</div>
+      <div class="avatar av-teal">${esc(m.name[0])}</div>
+      <div style="flex:1;font-size:14px;font-weight:500;">${esc(m.name)}</div>
+      ${m.uid===currentUser.uid ? '<span class="chip chip-teal" style="font-size:11px;">Вы</span>' : ''}
+    </div>`).join('');
+}
+
+function toggleGenParticipant(uid) {
+  const m = teamMembers.find(x => x.uid === uid);
+  if (!m) return;
+  m._genSelected = !m._genSelected;
+  const cc = el('gen-pcheck-'+uid);
+  cc.classList.toggle('checked', m._genSelected);
+  cc.textContent = m._genSelected ? '✓' : '';
+  el('gen-calc-preview').style.display = 'none';
+}
+
+function setGenSplitType(t) {
+  genSplitType = t;
+  el('gen-split-equal-btn').classList.toggle('active', t==='equal');
+  el('gen-split-custom-btn').classList.toggle('active', t==='custom');
+  if (t === 'custom') {
+    el('gen-custom-section').style.display = '';
+    el('gen-participants-section').style.display = 'none';
+    renderGenCustom();
+  } else {
+    el('gen-custom-section').style.display = 'none';
+    el('gen-participants-section').style.display = '';
+  }
+  el('gen-calc-preview').style.display = 'none';
+}
+
+function renderGenCustom() {
+  const total = currentExpense.total;
+  const list = el('gen-custom-list');
+  list.innerHTML = teamMembers.map(m => `
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div class="avatar av-teal" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">${esc(m.name[0])}</div>
+      <div style="flex:1;font-size:14px;font-weight:500;">${esc(m.name)}</div>
+      <input class="input" type="number" id="gen-owes-${m.uid}" placeholder="0" min="0"
+             style="width:100px;padding:7px 10px;text-align:right;font-size:15px;font-weight:600;"
+             oninput="updateCustomOwesTotal()" value="${m._genOwes||''}">
+      <span style="font-size:13px;color:var(--text2);flex-shrink:0;">₸</span>
+    </div>`).join('');
+  updateCustomOwesTotal();
+}
+
+function updateCustomOwesTotal() {
+  let owesSum = 0;
+  teamMembers.forEach(m => { owesSum += parseFloat(el('gen-owes-'+m.uid)?.value) || 0; });
+  const total = currentExpense.total;
+  const chk = el('gen-custom-total-check');
+  if (chk) {
+    const diff = Math.abs(owesSum - total);
+    chk.textContent = `Сумма долей: ${fmt(owesSum)} из ${fmt(total)} ₸ ${diff < 1 ? '✓' : '← надо совпасть'}`;
+    chk.style.color = diff < 1 ? 'var(--success)' : 'var(--danger)';
+  }
+}
+
+function calcAndPreviewGeneral() {
+  const desc = el('gen-desc').value.trim() || 'Общая покупка';
+  const total = currentExpense.total;
+  if (!total) { toast('Введите суммы — кто сколько заплатил'); return; }
+
+  // Who paid
+  const payers = teamMembers
+    .map(m => ({ uid: m.uid, name: m.name, paid: parseFloat(el('gen-paid-'+m.uid)?.value) || 0 }))
+    .filter(m => m.paid > 0);
+
+  // Who owes
+  let debtors = [];
+  if (genSplitType === 'equal') {
+    const selected = teamMembers.filter(m => m._genSelected);
+    if (!selected.length) { toast('Выберите хотя бы одного участника'); return; }
+    const share = Math.round((total / selected.length) * 100) / 100;
+    debtors = selected.map(m => ({ uid: m.uid, name: m.name, owes: share }));
+  } else {
+    let owesSum = 0;
+    debtors = teamMembers.map(m => {
+      const o = parseFloat(el('gen-owes-'+m.uid)?.value) || 0;
+      owesSum += o;
+      return { uid: m.uid, name: m.name, owes: o };
+    }).filter(d => d.owes > 0);
+    if (Math.abs(owesSum - total) > 1) {
+      toast(`Сумма долей ${fmt(owesSum)} ≠ общей сумме ${fmt(total)} ₸`);
+      return;
+    }
+  }
+
+  currentExpense.desc = desc;
+  currentExpense._genPayers = payers;
+  currentExpense._genDebtors = debtors;
+  _renderGenCalcPreview(payers, debtors, total);
+}
+
+function _renderGenCalcPreview(payers, debtors, total) {
+  // Build net map
+  const net = {};
+  teamMembers.forEach(m => { net[m.uid] = { uid: m.uid, name: m.name, bal: 0 }; });
+  payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+  debtors.forEach(d => { if (net[d.uid]) net[d.uid].bal -= d.owes; });
+
+  // Settle up algorithm
+  const pos = Object.values(net).filter(x => x.bal > 0.5).sort((a,b) => b.bal - a.bal);
+  const neg = Object.values(net).filter(x => x.bal < -0.5).sort((a,b) => a.bal - b.bal);
+  const debts = [];
+  const posC = pos.map(x => ({...x}));
+  const negC = neg.map(x => ({...x}));
+  let pi = 0, ni = 0;
+  while (pi < posC.length && ni < negC.length) {
+    const amount = Math.min(posC[pi].bal, -negC[ni].bal);
+    if (amount >= 0.5) debts.push({ from: negC[ni].name, fromUid: negC[ni].uid, to: posC[pi].name, toUid: posC[pi].uid, amount: Math.round(amount) });
+    posC[pi].bal -= amount; negC[ni].bal += amount;
+    if (posC[pi].bal < 0.5) pi++;
+    if (-negC[ni].bal < 0.5) ni++;
+  }
+  currentExpense._genDebts = debts;
+
+  const count = debtors.length;
+  const perPerson = genSplitType === 'equal' ? Math.round(total / count) : null;
+
+  let html = `
+    <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px;">
+      <div style="font-size:13px;color:var(--text2);">Итого</div>
+      <div style="font-size:24px;font-weight:800;color:var(--accent);">${fmt(total)} ₸</div>
+      ${perPerson ? `<div style="font-size:13px;color:var(--text2);margin-top:2px;">${fmt(total)} / ${count} = <b>${fmt(perPerson)} ₸</b> каждый</div>` : ''}
+    </div>
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Кто заплатил</div>
+      ${payers.map(p => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px;border-bottom:1px solid var(--border);">
+        <span>${esc(p.name)}</span>
+        <span style="font-weight:600;color:var(--success);">+${fmt(p.paid)} ₸</span>
+      </div>`).join('')}
+    </div>
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Доля каждого</div>
+      ${debtors.map(d => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px;border-bottom:1px solid var(--border);">
+        <span>${esc(d.name)}</span>
+        <span style="font-weight:600;">${fmt(d.owes)} ₸</span>
+      </div>`).join('')}
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">💸 Кто кому должен</div>
+      ${debts.length ? debts.map(d => `
+        <div style="background:var(--danger-light);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:13px;"><span style="font-weight:700;">${esc(d.from)}</span> → <span style="font-weight:700;">${esc(d.to)}</span></div>
+          <div style="font-weight:800;color:var(--danger);font-size:15px;">${fmt(d.amount)} ₸</div>
+        </div>`).join('')
+      : '<div style="color:var(--success);font-size:14px;padding:8px 0;">✓ Все рассчитаны!</div>'}
+    </div>`;
+
+  el('gen-calc-content').innerHTML = html;
+  el('gen-calc-preview').style.display = '';
+  el('gen-calc-btn').style.display = 'none';
+  // Scroll to preview
+  el('gen-calc-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function confirmSaveGeneral() {
+  const payers = currentExpense._genPayers;
+  const debtors = currentExpense._genDebtors;
+  const debts = currentExpense._genDebts || [];
+  const desc = currentExpense.desc || 'Общая покупка';
+  const total = currentExpense.total;
+
+  const allUids = new Set([...payers.map(p => p.uid), ...debtors.map(d => d.uid)]);
+  const participants = teamMembers.filter(m => allUids.has(m.uid)).map(m => ({ uid: m.uid, name: m.name }));
+  const selections = {};
+  participants.forEach(p => {
+    const paid = (payers.find(x => x.uid === p.uid)||{}).paid || 0;
+    const owes = (debtors.find(x => x.uid === p.uid)||{}).owes || 0;
+    selections[p.uid] = { myShare: Math.round(owes), paid: paid > 0, paidAmount: paid, disputed: false };
+  });
+
+  const mainPayer = payers.length === 1 ? payers[0] : null;
+  try {
+    await db.collection('expenses').add({
+      teamId: teamDoc.id,
+      type: 'general',
+      desc,
+      total,
+      payerId: mainPayer ? mainPayer.uid : 'multiple',
+      payerName: mainPayer ? mainPayer.name : payers.map(p => p.name).join(', '),
+      payers,
+      debts,
+      items: [],
+      participants,
+      selections,
+      splitType: genSplitType,
+      status: 'open',
+      createdBy: currentUser.uid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    // Team-wide notification
+    await addNotif(`${userDoc.name} добавил расход «${desc}» на ${fmt(total)} ₸`, 'expense');
+    // Personal notifications to each debtor
+    await notifyDebtors(debts, desc);
+    toast('Расход сохранён! ✓');
+    currentExpense = { type:null, desc:'', total:0, payerId:'', payerName:'', items:[], splitType:'equal', participants:[], customShares:{}, dishSelections:{} };
+    go('s-home');
+  } catch(e) { toast('Ошибка: ' + e.message); }
+}
+
+// Legacy splitType setter (kept for receipt flow compatibility)
+let splitType = 'equal';
+function setSplitType(t) {
+  splitType = t;
+  currentExpense.splitType = t;
+}
+
+// ════════════════════════════════════════════════
+// PARTICIPANTS
+// ════════════════════════════════════════════════
+function goToParticipants(type) {
+  currentExpense.type = type;
+  if (type === 'receipt') {
+    const total = parseFloat(v('receipt-total-input')) || 0;
+    if (!total) { toast('Введите сумму чека'); return; }
+    currentExpense.total = total;
+    currentExpense.desc = v('receipt-desc') || 'Ресторанный чек';
+    const payerSel = el('receipt-payer');
+    currentExpense.payerId = payerSel.value;
+    currentExpense.payerName = payerSel.options[payerSel.selectedIndex]?.text || '';
+    el('participants-back').setAttribute('onclick', "go('s-receipt-verify')");
+  } else {
+    // General expense now handled by openGeneralExpense() — this branch kept for receipt only
+    return;
+  }
+  currentExpense.participants = teamMembers.map(m => ({ uid: m.uid, name: m.name, selected: true }));
+  renderParticipants();
+  el('participants-total').textContent = fmt(currentExpense.total) + ' ₸';
+  go('s-participants');
+}
+
+function renderParticipants() {
+  const list = el('participants-list');
+  list.innerHTML = currentExpense.participants.map((p, i) => `
+    <div class="participant-row" onclick="toggleParticipant(${i})">
+      <div class="check-circle${p.selected?' checked':''}" id="pcheck-${i}">${p.selected?'✓':''}</div>
+      <div class="avatar av-teal">${p.name[0]}</div>
+      <div style="flex:1;font-size:14px;font-weight:500;">${esc(p.name)}</div>
+      ${p.uid===currentUser.uid ? '<span class="chip chip-teal" style="font-size:11px;">Вы</span>' : ''}
+    </div>`).join('');
+
+  // Custom shares
+  if (currentExpense.type === 'general' && splitType === 'custom') {
+    el('custom-shares-section').style.display = '';
+    el('custom-shares-list').innerHTML = currentExpense.participants.filter(p => p.selected).map(p => `
+      <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+        <div style="flex:1;font-size:14px;">${esc(p.name)}</div>
+        <input class="input" type="number" id="share-${p.uid}" placeholder="1" min="0" step="0.5" style="width:80px;padding:8px;text-align:center;" value="${currentExpense.customShares[p.uid]||1}">
+      </div>`).join('');
+  } else {
+    el('custom-shares-section').style.display = 'none';
+  }
+}
+
+function toggleParticipant(i) {
+  currentExpense.participants[i].selected = !currentExpense.participants[i].selected;
+  const cc = el('pcheck-'+i);
+  cc.classList.toggle('checked', currentExpense.participants[i].selected);
+  cc.textContent = currentExpense.participants[i].selected ? '✓' : '';
+  renderParticipants();
+}
+
+function goNextFromParticipants() {
+  const selected = currentExpense.participants.filter(p => p.selected);
+  if (!selected.length) { toast('Выберите хотя бы одного участника'); return; }
+  if (currentExpense.type === 'receipt') {
+    // Go to dish selection
+    currentExpense.dishSelections = {};
+    selected.forEach(p => { currentExpense.dishSelections[p.uid] = {}; });
+    renderDishSelect(selected);
+    go('s-dish-select');
+  } else {
+    // Compute shares and save
+    computeGeneralShares(selected);
+    saveExpense();
+  }
+}
+
+function computeGeneralShares(selected) {
+  if (splitType === 'equal') {
+    const share = currentExpense.total / selected.length;
+    selected.forEach(p => { p.myShare = Math.round(share); });
+  } else {
+    const shares = {};
+    let totalShares = 0;
+    selected.forEach(p => {
+      const s = parseFloat(el('share-'+p.uid)?.value) || 1;
+      shares[p.uid] = s; totalShares += s;
+    });
+    selected.forEach(p => { p.myShare = Math.round(currentExpense.total * shares[p.uid] / totalShares); });
+  }
+}
+
+// ════════════════════════════════════════════════
+// DISH SELECTION
+// ════════════════════════════════════════════════
+function renderDishSelect(participants) {
+  el('dish-select-sub').textContent = `${participants.length} участников`;
+  const list = el('dish-select-list');
+  list.innerHTML = currentExpense.items.map((item, idx) => {
+    const perUnit = item.price;
+    const itemTotal = (item.qty || 1) * item.price;
+
+    if (item.shared) {
+      const perPerson = Math.round(itemTotal / participants.length);
+      return `<div class="dish-row">
+        <div class="row-between">
+          <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
+          <div style="font-size:12px;color:var(--text2);">${item.qty}x ${fmt(perUnit)} ₸</div>
+        </div>
+        <div style="font-size:12px;color:var(--accent);margin-top:6px;padding:6px 10px;background:var(--accent-light);border-radius:8px;font-weight:600;">
+          🤝 Общая — делится поровну: ${fmt(perPerson)} ₸ с каждого
+        </div>
+      </div>`;
+    }
+
+    const opts = participants.map(p => {
+      const sel = (currentExpense.dishSelections[p.uid]||{})[idx] || 'none';
+      return `<button class="dish-opt${sel==='full'?' sel-full':sel==='half'?' sel-half':sel==='none'?' sel-none':''}" onclick="selectDish('${p.uid}',${idx},'full','none','half',this)"
+              data-uid="${p.uid}" data-idx="${idx}">${p.name.split(' ')[0]}</button>`;
+    }).join('');
+    return `<div class="dish-row">
+      <div class="row-between">
+        <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
+        <div style="font-size:12px;color:var(--text2);">${item.qty}x ${fmt(perUnit)} ₸</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Нажмите имя: зелёный=полностью, жёлтый=делил, серый=не ел</div>
+      <div class="dish-opts" id="dish-opts-${idx}">${opts}</div>
+    </div>`;
+  }).join('');
+  recalcMyDishShare();
+}
+
+function selectDish(uid, itemIdx, ...args) {
+  // Cycle: none → full → half → none
+  const cur = (currentExpense.dishSelections[uid]||{})[itemIdx] || 'none';
+  const next = cur === 'none' ? 'full' : cur === 'full' ? 'half' : 'none';
+  if (!currentExpense.dishSelections[uid]) currentExpense.dishSelections[uid] = {};
+  currentExpense.dishSelections[uid][itemIdx] = next;
+
+  // Update buttons for this item
+  const optsEl = el('dish-opts-'+itemIdx);
+  optsEl.querySelectorAll('[data-uid="'+uid+'"]').forEach(btn => {
+    btn.className = 'dish-opt' + (next==='full'?' sel-full':next==='half'?' sel-half':' sel-none');
+  });
+  recalcMyDishShare();
+}
+
+function recalcMyDishShare() {
+  let myShare = 0;
+  const uid = currentUser.uid;
+  const allSelected = currentExpense.participants.filter(p => p.selected);
+  const nParticipants = allSelected.length || 1;
+
+  currentExpense.items.forEach((item, idx) => {
+    const totalQty = item.qty || 1;
+    const itemTotal = totalQty * item.price;
+
+    if (item.shared) {
+      myShare += itemTotal / nParticipants;
+      return;
+    }
+
+    const mySel = (currentExpense.dishSelections[uid]||{})[idx] || 'none';
+    if (mySel === 'none') return;
+
+    // Count how many people share this item and how
+    let fullCount = 0, halfCount = 0;
+    Object.keys(currentExpense.dishSelections).forEach(u => {
+      const s = (currentExpense.dishSelections[u]||{})[idx] || 'none';
+      if (s === 'full') fullCount++;
+      else if (s === 'half') halfCount++;
+    });
+
+    // Half-portions count as 0.5
+    const effectiveTotal = fullCount + halfCount * 0.5;
+    if (effectiveTotal === 0) return;
+    const myPortion = mySel === 'full' ? 1 : 0.5;
+    myShare += (myPortion / effectiveTotal) * itemTotal;
+  });
+  el('my-dish-share').textContent = fmt(Math.round(myShare)) + ' ₸';
+}
+
+// ════════════════════════════════════════════════
+// SAVE EXPENSE
+// ════════════════════════════════════════════════
+async function saveExpense() {
+  if (!db || !teamDoc || !currentUser) { toast('Нет соединения'); return; }
+  const selected = currentExpense.participants.filter(p => p.selected);
+  const selections = {};
+
+  if (currentExpense.type === 'receipt') {
+    // Initialize zero shares
+    selected.forEach(p => {
+      selections[p.uid] = { myShare: 0, paid: false, disputed: false, dishSel: currentExpense.dishSelections[p.uid] || {} };
+    });
+    // Compute shares per item
+    currentExpense.items.forEach((item, idx) => {
+      const itemTotal = (item.qty || 1) * (item.price || 0);
+      if (item.shared) {
+        // Shared item: split equally among all participants
+        const sharePerPerson = itemTotal / selected.length;
+        selected.forEach(p => { selections[p.uid].myShare += sharePerPerson; });
+        return;
+      }
+      // Count dish selections for this item
+      let fullCount = 0, halfCount = 0;
+      selected.forEach(p => {
+        const s = (currentExpense.dishSelections[p.uid]||{})[idx] || 'none';
+        if (s === 'full') fullCount++;
+        else if (s === 'half') halfCount++;
+      });
+      const eff = fullCount + halfCount * 0.5;
+      if (eff === 0) return;
+      selected.forEach(p => {
+        const pSel = (currentExpense.dishSelections[p.uid]||{})[idx] || 'none';
+        if (pSel === 'none') return;
+        selections[p.uid].myShare += ((pSel === 'full' ? 1 : 0.5) / eff) * itemTotal;
+      });
+    });
+    // Round all shares
+    selected.forEach(p => { selections[p.uid].myShare = Math.round(selections[p.uid].myShare); });
+  } else {
+    selected.forEach(p => {
+      selections[p.uid] = { myShare: p.myShare || 0, paid: false, disputed: false };
+    });
+  }
+
+  try {
+    const expenseData = {
+      teamId: teamDoc.id,
+      type: currentExpense.type,
+      desc: currentExpense.desc,
+      total: currentExpense.total,
+      payerId: currentExpense.payerId,
+      payerName: currentExpense.payerName,
+      items: currentExpense.type === 'receipt' ? currentExpense.items : [],
+      participants: selected.map(p => ({ uid: p.uid, name: p.name })),
+      selections,
+      status: 'open',
+      createdBy: currentUser.uid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    const docRef = await db.collection('expenses').add(expenseData);
+    await addNotif(`${userDoc.name} добавил расход «${currentExpense.desc}» на ${fmt(currentExpense.total)} ₸`, 'expense');
+    toast('Расход сохранён! ✓');
+    // Show settlement screen before resetting
+    const savedData = { ...expenseData, id: docRef.id };
+    renderSettlement(savedData, selections, selected);
+    // Reset
+    currentExpense = { type:null, desc:'', total:0, payerId:'', payerName:'', items:[], splitType:'equal', participants:[], customShares:{}, dishSelections:{} };
+    el('scan-area').style.display = '';
+    el('ocr-progress-area').style.display = 'none';
+    el('receipt-file').value = '';
+    go('s-settlement');
+  } catch(e) { toast('Ошибка: ' + e.message); }
+}
+
+// ════════════════════════════════════════════════
+// SETTLEMENT SCREEN
+// ════════════════════════════════════════════════
+function renderSettlement(expenseData, selections, participants) {
+  el('settlement-desc').textContent = expenseData.desc || '';
+  const debts = computeDebtsFromExpense(expenseData);
+
+  let html = '';
+
+  // Total card
+  html += `<div class="card">
+    <div class="row-between">
+      <span style="font-size:14px;color:var(--text2);">Итого по чеку</span>
+      <span style="font-size:22px;font-weight:800;">${fmt(expenseData.total)} ₸</span>
+    </div>
+    <div class="row-between" style="margin-top:6px;">
+      <span style="font-size:13px;color:var(--text2);">Оплатил</span>
+      <span style="font-size:14px;font-weight:600;">${esc(expenseData.payerName||'')}</span>
+    </div>
+  </div>`;
+
+  // Per-person shares
+  html += `<div class="card"><div class="card-title">Доля каждого</div>`;
+  (participants||[]).forEach(p => {
+    const share = (selections[p.uid]||{}).myShare || 0;
+    const isMe = p.uid === currentUser.uid;
+    const isPayer = p.uid === expenseData.payerId;
+    html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div class="avatar av-teal" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
+      <div style="flex:1;">
+        <div style="font-size:15px;font-weight:${isMe?'700':'500'};">${esc(p.name)}${isMe?' <span style="font-size:12px;color:var(--text2);font-weight:400;">(Вы)</span>':''}${isPayer?' <span style="font-size:11px;color:var(--accent);font-weight:700;">💳 платил</span>':''}</div>
+      </div>
+      <div style="font-size:17px;font-weight:700;${isMe?'color:var(--accent);':''}">${fmt(share)} ₸</div>
+    </div>`;
+  });
+  html += '</div>';
+
+  // Settlement arrows
+  if (debts.length > 0) {
+    html += `<div class="card" style="border:2px solid var(--accent);">
+      <div style="font-size:13px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">💸 Кто кому переводит</div>`;
+    debts.forEach(d => {
+      const isMyDebt = d.fromUid === currentUser.uid;
+      const isMyReceivable = d.toUid === currentUser.uid;
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:15px;${isMyDebt?'font-weight:700;color:var(--danger);':isMyReceivable?'color:var(--success);':''}">
+          <b>${esc(d.from)}</b> <span style="font-size:18px;margin:0 4px;">→</span> <b>${esc(d.to)}</b>
+        </div>
+        <div style="font-size:18px;font-weight:800;${isMyDebt?'color:var(--danger);':isMyReceivable?'color:var(--success);':''}">${fmt(d.amount)} ₸</div>
+      </div>`;
+    });
+    html += '</div>';
+  } else {
+    html += `<div class="card" style="text-align:center;color:var(--success);">
+      <div style="font-size:32px;margin-bottom:8px;">✅</div>
+      <div style="font-size:15px;font-weight:600;">Все рассчитались!</div>
+    </div>`;
+  }
+
+  html += `<button class="btn btn-primary" onclick="go('s-home')" style="margin-top:4px;">Готово</button>`;
+  el('settlement-content').innerHTML = html;
+}
+
+// ════════════════════════════════════════════════
+// EXPENSE DETAIL
+// ════════════════════════════════════════════════
+async function openExpenseDetail(id) {
+  activeExpenseId = id;
+  el('detail-title').textContent = 'Загрузка...';
+  el('detail-date').textContent = '';
+  el('expense-detail-content').innerHTML = '<div class="spinner"></div>';
+  go('s-expense-detail');
+  try {
+    const snap = await db.collection('expenses').doc(id).get();
+    if (!snap.exists) { toast('Расход не найден'); go('s-home'); return; }
+    activeExpenseData = { id: snap.id, ...snap.data() };
+    renderExpenseDetail(activeExpenseData);
+  } catch(e) { toast(e.message); }
+}
+
+function computeDebtsFromExpense(e) {
+  if (e.debts && e.debts.length) return e.debts;
+  // Compute from payers vs selections
+  const net = {};
+  (e.participants||[]).forEach(p => { net[p.uid] = { uid: p.uid, name: p.name, bal: 0 }; });
+  if (e.payers && e.payers.length) {
+    e.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+  } else if (e.payerId && e.payerId !== 'multiple' && net[e.payerId]) {
+    net[e.payerId].bal += e.total;
+  }
+  (e.participants||[]).forEach(p => {
+    const share = ((e.selections||{})[p.uid]||{}).myShare || 0;
+    if (net[p.uid]) net[p.uid].bal -= share;
+  });
+  const pos = Object.values(net).filter(x => x.bal > 0.5).sort((a,b) => b.bal - a.bal);
+  const neg = Object.values(net).filter(x => x.bal < -0.5).sort((a,b) => a.bal - b.bal);
+  const debts = [];
+  const pc = pos.map(x=>({...x})), nc = neg.map(x=>({...x}));
+  let pi=0, ni=0;
+  while (pi<pc.length && ni<nc.length) {
+    const amt = Math.min(pc[pi].bal, -nc[ni].bal);
+    if (amt >= 0.5) debts.push({ fromUid: nc[ni].uid, from: nc[ni].name, toUid: pc[pi].uid, to: pc[pi].name, amount: Math.round(amt) });
+    pc[pi].bal -= amt; nc[ni].bal += amt;
+    if (pc[pi].bal < 0.5) pi++;
+    if (-nc[ni].bal < 0.5) ni++;
+  }
+  return debts;
+}
+
+function renderExpenseDetail(e) {
+  el('detail-title').textContent = e.desc || 'Расход';
+  el('detail-date').textContent = e.createdAt ? fmtDate(e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt)) : '';
+
+  const mySelection = (e.selections||{})[currentUser.uid];
+  const iAmPayer = e.payerId === currentUser.uid || (e.payers||[]).some(p => p.uid === currentUser.uid);
+  const debtStatuses = e.debtStatuses || {};
+  const debts = computeDebtsFromExpense(e);
+
+  // Find MY debts (I am debtor)
+  const myDebts = debts.filter(d => d.fromUid === currentUser.uid);
+  const myReceivables = debts.filter(d => d.toUid === currentUser.uid);
+
+  let html = '';
+
+  // ── 1. MY DEBTS FIRST (most important for the user) ──
+  if (myDebts.length > 0) {
+    const allMyPaid = myDebts.every(d => (debtStatuses[d.fromUid+'__'+d.toUid]||'pending') !== 'pending');
+    html += `<div class="card" style="border:2px solid var(--warn);background:var(--warn-light);">
+      <div style="font-size:13px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">⚡ Ваши долги</div>`;
+    myDebts.forEach(d => {
+      const key = d.fromUid + '__' + d.toUid;
+      const st = debtStatuses[key] || 'pending';
+      if (st === 'paid') {
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:14px;">→ <b>${esc(d.to)}</b> <span class="chip chip-green" style="font-size:11px;">✓ Оплачено</span></span>
+          <span style="font-size:15px;font-weight:700;color:var(--success);">${fmt(d.amount)} ₸</span>
+        </div>`;
+      } else if (st === 'declined') {
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:14px;">→ <b>${esc(d.to)}</b> <span class="chip chip-red" style="font-size:11px;">✕ Отказался</span></span>
+          <span style="font-size:15px;font-weight:700;color:var(--text3);">${fmt(d.amount)} ₸</span>
+        </div>`;
+      } else {
+        html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:15px;">→ <b>${esc(d.to)}</b></span>
+            <span style="font-size:18px;font-weight:800;color:var(--danger);">${fmt(d.amount)} ₸</span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="payDebt('${e.id}','${d.fromUid}','${d.toUid}',${d.amount})">✓ Оплатить</button>
+            <button class="btn btn-danger" style="flex:1;" onclick="declineDebt('${e.id}','${d.fromUid}','${d.toUid}',${d.amount})">✕ Отказаться</button>
+          </div>
+        </div>`;
+      }
+    });
+    html += '</div>';
+  }
+
+  // ── 2. MY RECEIVABLES (people owe me) ──
+  if (myReceivables.length > 0 && iAmPayer) {
+    const totalPending = myReceivables.filter(d => (debtStatuses[d.fromUid+'__'+d.toUid]||'pending') === 'pending').reduce((s,d) => s+d.amount, 0);
+    html += `<div class="card" style="border:2px solid var(--success);background:var(--success-light);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:0.5px;">💰 Вам должны</div>
+        ${totalPending>0?`<div style="font-size:16px;font-weight:800;color:var(--success);">+${fmt(totalPending)} ₸</div>`:''}
+      </div>`;
+    myReceivables.forEach(d => {
+      const key = d.fromUid + '__' + d.toUid;
+      const st = debtStatuses[key] || 'pending';
+      const stLabel = st==='paid' ? '<span class="chip chip-green" style="font-size:11px;">✓ Оплачено</span>'
+                    : st==='declined' ? '<span class="chip chip-red" style="font-size:11px;">✕ Отказался</span>'
+                    : '<span style="font-size:12px;color:var(--text3);">ожидает...</span>';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">
+        <span style="font-size:14px;"><b>${esc(d.from)}</b> ${stLabel}</span>
+        <span style="font-size:15px;font-weight:700;color:${st==='paid'?'var(--success)':st==='declined'?'var(--text3)':'var(--text)'};">${fmt(d.amount)} ₸</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // ── 3. SUMMARY CARD ──
+  html += `<div class="card">
+    <div class="row-between" style="margin-bottom:8px;">
+      <span style="font-size:13px;color:var(--text2);">Итого</span>
+      <span style="font-size:20px;font-weight:800;">${fmt(e.total)} ₸</span>
+    </div>
+    <div class="row-between">
+      <span style="font-size:13px;color:var(--text2);">Оплатил</span>
+      <span style="font-size:14px;font-weight:600;">${esc(e.payerName||'')}</span>
+    </div>
+  </div>`;
+
+  // ── 4. Items (receipt) ──
+  if (e.type === 'receipt' && e.items && e.items.length) {
+    html += `<div class="card"><div class="card-title">Позиции</div>`;
+    e.items.forEach(item => {
+      html += `<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:14px;">${esc(item.name)}</span>
+        <span style="font-size:14px;color:var(--text2);">${item.qty}x ${fmt(item.price)} ₸</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // ── 5. PARTICIPANTS — collapsible ──
+  const participants = e.participants || [];
+  const paidCount = participants.filter(p => { const s=(e.selections||{})[p.uid]||{}; return s.paid||s.declined||(e.payers||[]).some(x=>x.uid===p.uid); }).length;
+  html += `<div class="card" style="padding:0;">
+    <div onclick="toggleParticipantsPanel()" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;">
+      <div style="font-size:14px;font-weight:600;">👥 Участники <span style="font-size:13px;color:var(--text2);font-weight:400;">${paidCount}/${participants.length} рассчитались</span></div>
+      <div id="participants-chevron" style="font-size:18px;color:var(--text3);transition:transform 0.2s;">▾</div>
+    </div>
+    <div id="participants-panel" style="display:none;border-top:1px solid var(--border);padding:0 16px;">`;
+  participants.forEach(p => {
+    const sel = (e.selections||{})[p.uid] || {};
+    const share = sel.myShare || 0;
+    const isPayer = p.uid === e.payerId || (e.payers||[]).some(x => x.uid === p.uid);
+    let statusChip = '';
+    if (isPayer && sel.paidAmount > 0) statusChip = `<span class="chip chip-green" style="font-size:11px;">💳 ${fmt(sel.paidAmount)} ₸</span>`;
+    else if (sel.paid) statusChip = '<span class="chip chip-green" style="font-size:11px;">✓ Ок</span>';
+    else if (sel.declined) statusChip = '<span class="chip chip-red" style="font-size:11px;">✕</span>';
+    else if (sel.disputed) statusChip = '<span class="chip chip-red" style="font-size:11px;">⚠</span>';
+    const isMe = p.uid === currentUser.uid;
+    html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div class="avatar av-teal" style="width:32px;height:32px;font-size:13px;">${esc(p.name[0])}</div>
+      <div style="flex:1;font-size:14px;${isMe?'font-weight:700;':''}">${esc(p.name)}${isMe?' (Вы)':''}${statusChip}</div>
+      <div style="font-size:14px;font-weight:600;">${fmt(share)} ₸</div>
+      ${iAmPayer && !isPayer && !sel.paid && !sel.declined ? `<button class="btn btn-sm btn-ghost" style="padding:4px 8px;font-size:12px;" onclick="openDiscountModal('${p.uid}','${esc(p.name)}',${share})">Скидка</button>` : ''}
+    </div>`;
+  });
+  html += `<div style="padding:10px 0;"></div></div></div>`;
+
+  // ── 6. ALL DEBTS OVERVIEW (visible to payers / admin) ──
+  if (debts.length && (iAmPayer || e.createdBy === currentUser.uid)) {
+    const othersDebts = debts.filter(d => d.fromUid !== currentUser.uid);
+    if (othersDebts.length) {
+      html += `<div class="card"><div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">📋 Все долги</div>`;
+      othersDebts.forEach(d => {
+        const key = (d.fromUid||'')+'__'+(d.toUid||'');
+        const st = debtStatuses[key] || 'pending';
+        const stLabel = st==='paid'?'<span class="chip chip-green" style="font-size:11px;">✓</span>'
+                       :st==='declined'?'<span class="chip chip-red" style="font-size:11px;">✕</span>'
+                       :'<span style="font-size:12px;color:var(--text3);">ожидает</span>';
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:14px;"><b>${esc(d.from)}</b> → <b>${esc(d.to)}</b> ${stLabel}</span>
+          <span style="font-size:14px;font-weight:700;color:${st==='paid'?'var(--success)':st==='declined'?'var(--text3)':'var(--danger)'};">${fmt(d.amount)} ₸</span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+  }
+
+  // ── Receipt type: my actions (legacy) ──
+  if (mySelection && !iAmPayer && e.type === 'receipt' && myDebts.length === 0) {
+    html += `<div class="card"><div class="card-title">Мои действия</div>
+      <div class="row-between" style="margin-bottom:12px;">
+        <span style="font-size:15px;">Моя доля</span>
+        <span style="font-size:18px;font-weight:700;color:var(--danger);">${fmt(mySelection.myShare||0)} ₸</span>
+      </div>`;
+    if (!mySelection.paid && !mySelection.disputed && !mySelection.declined) {
+      html += `<div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" style="flex:1;" onclick="acceptDebt('${e.id}')">✓ Принял, заплачу</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="openModal('modal-dispute')">✕ Оспорить</button>
+      </div>`;
+    } else if (mySelection.paid) {
+      html += `<div class="chip chip-green" style="padding:10px 16px;font-size:14px;display:block;text-align:center;">✓ Вы подтвердили оплату</div>`;
+    } else if (mySelection.declined) {
+      html += `<div class="chip chip-red" style="padding:10px 16px;font-size:14px;display:block;text-align:center;">✕ Вы отказались от долга</div>`;
+    }
+    html += '</div>';
+  }
+
+  // ── Bottom actions: settle to history + delete ──
+  const canDelete = e.createdBy === currentUser.uid;
+  const isCreatorOrPayer = e.createdBy === currentUser.uid || iAmPayer;
+
+  // Check if ALL non-payer participants have resolved (paid or declined)
+  const payerUidsSet = new Set((e.payers||[]).map(p=>p.uid));
+  if (e.payerId && e.payerId !== 'multiple') payerUidsSet.add(e.payerId);
+  const nonPayers = (e.participants||[]).filter(p => !payerUidsSet.has(p.uid));
+  const allResolved = nonPayers.length > 0 && nonPayers.every(p => {
+    const sel = (e.selections||{})[p.uid] || {};
+    return sel.paid || sel.declined;
+  });
+  // Also check debt statuses: all debts paid or declined
+  const computedDebts = computeDebtsFromExpense(e);
+  const debtSt = e.debtStatuses || {};
+  const allDebtsDone = computedDebts.length === 0 || computedDebts.every(d => {
+    const k = d.fromUid + '__' + d.toUid;
+    return debtSt[k] === 'paid' || debtSt[k] === 'declined';
+  });
+  const readyForHistory = (allResolved || allDebtsDone) && e.status !== 'settled';
+
+  if (isCreatorOrPayer || canDelete) {
+    html += `<div style="display:flex;gap:10px;margin-top:4px;margin-bottom:8px;">`;
+    if (isCreatorOrPayer) {
+      if (readyForHistory) {
+        html += `<button class="btn btn-primary" style="flex:1;" onclick="settleExpense('${e.id}')">📁 Закрыть в историю</button>`;
+      } else {
+        html += `<button class="btn btn-secondary" style="flex:1;opacity:0.5;cursor:default;" disabled title="Ждём пока все примут счёт">📁 В историю (ждём всех)</button>`;
+      }
+    }
+    if (canDelete) {
+      html += `<button class="btn btn-ghost" style="color:var(--danger);border:1px solid var(--danger);${isCreatorOrPayer?'width:48px;':'flex:1;'}" onclick="confirmDeleteExpense()">🗑</button>`;
+    }
+    html += `</div>`;
+  }
+
+  el('expense-detail-content').innerHTML = html;
+  // Show/hide topbar delete icon
+  const dBtn = el('detail-delete-btn');
+  if (dBtn) dBtn.style.display = canDelete ? '' : 'none';
+}
+
+function toggleParticipantsPanel() {
+  const panel = el('participants-panel');
+  const chevron = el('participants-chevron');
+  if (!panel) return;
+  const open = panel.style.display === '';
+  panel.style.display = open ? 'none' : '';
+  if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
+}
+
+async function settleExpense(expenseId) {
+  try {
+    await db.collection('expenses').doc(expenseId).update({ status: 'settled', settledAt: firebase.firestore.FieldValue.serverTimestamp() });
+    await addNotif(`${userDoc.name} закрыл расход в историю`, 'payment');
+    toast('Расход перенесён в историю ✓');
+    go('s-home');
+  } catch(e) { toast('Ошибка: ' + e.message); }
+}
+
+async function confirmDeleteExpense() {
+  if (!activeExpenseId) return;
+  // Simple confirm via toast — show a two-step delete
+  if (!window._deleteConfirmPending) {
+    window._deleteConfirmPending = true;
+    toast('Нажмите ещё раз 🗑 для удаления', 3000);
+    setTimeout(() => { window._deleteConfirmPending = false; }, 3500);
+    return;
+  }
+  window._deleteConfirmPending = false;
+  try {
+    await db.collection('expenses').doc(activeExpenseId).delete();
+    toast('Расход удалён');
+    go('s-home');
+  } catch(e) { toast('Ошибка: ' + e.message); }
+}
+
+async function payDebt(expenseId, fromUid, toUid, amount) {
+  try {
+    const key = fromUid + '__' + toUid;
+    const updates = {};
+    updates[`debtStatuses.${key}`] = 'paid';
+    if (fromUid === currentUser.uid) {
+      updates[`selections.${currentUser.uid}.paid`] = true;
+    }
+    await db.collection('expenses').doc(expenseId).update(updates);
+    await addNotif(`${userDoc.name} оплатил долг ${fmt(amount)} ₸`, 'payment');
+    toast('Оплата подтверждена ✓');
+    // Re-open to check if all done
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    if (snap.exists) {
+      const data = { id: snap.id, ...snap.data() };
+      const debts = computeDebtsFromExpense(data);
+      const dst = data.debtStatuses || {};
+      const allDone = debts.every(d => {
+        const k = d.fromUid + '__' + d.toUid;
+        return dst[k] === 'paid' || dst[k] === 'declined';
+      });
+      if (allDone && debts.length > 0 && data.status !== 'settled') {
+        await addNotif(`Все рассчитались по «${data.desc}» — можно закрыть в историю`, 'payment');
+      }
+    }
+    openExpenseDetail(expenseId);
+  } catch(e) { toast('Ошибка: ' + e.message); }
+}
+
+async function declineDebt(expenseId, fromUid, toUid, declinedAmount) {
+  try {
+    // Read current expense
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    if (!snap.exists) { toast('Расход не найден'); return; }
+    const expData = snap.data();
+    const selections = expData.selections || {};
+    const participants = expData.participants || [];
+
+    // Mark this debt as declined
+    const key = fromUid + '__' + toUid;
+    const updates = {};
+    updates[`debtStatuses.${key}`] = 'declined';
+    updates[`selections.${fromUid}.declined`] = true;
+    updates[`selections.${fromUid}.myShare`] = 0;
+
+    // Redistribute the declined amount among active (non-declined, non-payer) participants
+    const payerUids = new Set((expData.payers||[]).map(p => p.uid));
+    if (expData.payerId && expData.payerId !== 'multiple') payerUids.add(expData.payerId);
+    const active = participants.filter(p => {
+      if (p.uid === fromUid) return false;           // declined person
+      if (payerUids.has(p.uid)) return false;        // payers don't owe
+      const sel = selections[p.uid] || {};
+      return !sel.paid && !sel.declined;             // not already settled
+    });
+
+    if (active.length > 0) {
+      const extra = Math.round(declinedAmount / active.length);
+      active.forEach((p, i) => {
+        const curShare = (selections[p.uid] || {}).myShare || 0;
+        // Last person absorbs rounding difference
+        const add = i === active.length - 1
+          ? declinedAmount - extra * (active.length - 1)
+          : extra;
+        updates[`selections.${p.uid}.myShare`] = curShare + add;
+      });
+    }
+
+    // Recompute debts array and save
+    // Build updated selections locally to recompute
+    const updatedSels = JSON.parse(JSON.stringify(selections));
+    updatedSels[fromUid] = { ...(updatedSels[fromUid]||{}), myShare: 0, declined: true };
+    active.forEach((p, i) => {
+      const add = i === active.length - 1
+        ? declinedAmount - Math.round(declinedAmount / active.length) * (active.length - 1)
+        : Math.round(declinedAmount / active.length);
+      updatedSels[p.uid] = { ...(updatedSels[p.uid]||{}), myShare: ((selections[p.uid]||{}).myShare||0) + add };
+    });
+    const fakeExp = { ...expData, selections: updatedSels, debts: null };
+    const newDebts = computeDebtsFromExpense(fakeExp);
+    updates['debts'] = newDebts;
+
+    await db.collection('expenses').doc(expenseId).update(updates);
+    await addNotif(`${userDoc.name} отказался от долга ${fmt(declinedAmount)} ₸ — сумма перераспределена`, 'dispute');
+    toast('Долг перераспределён между участниками');
+    openExpenseDetail(expenseId);
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
+async function acceptDebt(expenseId) {
+  try {
+    await db.collection('expenses').doc(expenseId).update({
+      [`selections.${currentUser.uid}.paid`]: true
+    });
+    toast('Подтверждено ✓');
+    openExpenseDetail(expenseId);
+  } catch(e) { toast(e.message); }
+}
+
+async function submitDispute() {
+  const reason = v('dispute-reason').trim();
+  if (!reason) { toast('Укажите причину'); return; }
+  try {
+    await db.collection('expenses').doc(activeExpenseId).update({
+      [`selections.${currentUser.uid}.disputed`]: true,
+      [`selections.${currentUser.uid}.disputeReason`]: reason
+    });
+    await addNotif(`${userDoc.name} оспорил долг в «${activeExpenseData?.desc||'расходе'}»`, 'dispute');
+    closeModal('modal-dispute');
+    toast('Спор открыт');
+    openExpenseDetail(activeExpenseId);
+  } catch(e) { toast(e.message); }
+}
+
+// ════════════════════════════════════════════════
+// DISCOUNT
+// ════════════════════════════════════════════════
+function openDiscountModal(uid, name, origAmount) {
+  discountTargetUid = uid;
+  discountOrigAmount = origAmount;
+  el('discount-member-name').textContent = `Скидка для ${name}`;
+  el('discount-slider').value = 0;
+  el('discount-pct-label').textContent = '0%';
+  el('discount-amount-label').textContent = fmt(origAmount) + ' ₸';
+  openModal('modal-discount');
+}
+
+function updateDiscountLabel(pct) {
+  el('discount-pct-label').textContent = pct + '%';
+  el('discount-amount-label').textContent = fmt(Math.round(discountOrigAmount * (1 - pct/100))) + ' ₸';
+}
+
+async function applyDiscount() {
+  const pct = parseInt(el('discount-slider').value);
+  const newAmount = Math.round(discountOrigAmount * (1 - pct/100));
+  try {
+    await db.collection('expenses').doc(activeExpenseId).update({
+      [`selections.${discountTargetUid}.myShare`]: newAmount,
+      [`selections.${discountTargetUid}.discountPct`]: pct
+    });
+    closeModal('modal-discount');
+    toast(`Скидка ${pct}% применена`);
+    openExpenseDetail(activeExpenseId);
+  } catch(e) { toast(e.message); }
+}
+
+// ════════════════════════════════════════════════
+// MARK PAID (settlements)
+// ════════════════════════════════════════════════
+async function markPaid(payeeUid, amount) {
+  // Find all open expenses where currentUser owes payeeUid
+  const snap = await db.collection('expenses')
+    .where('teamId','==',teamDoc.id)
+    .where('payerId','==',payeeUid).get();
+  const batch = db.batch();
+  snap.docs.forEach(d => {
+    const data = d.data();
+    if (data.selections && data.selections[currentUser.uid] && !data.selections[currentUser.uid].paid) {
+      batch.update(d.ref, { [`selections.${currentUser.uid}.paid`]: true });
+    }
+  });
+  await batch.commit();
+  await addNotif(`${userDoc.name} отметил оплату на ${fmt(amount)} ₸`, 'payment');
+  toast('Отмечено как оплачено ✓');
+}
+
+// ════════════════════════════════════════════════
+// UI HELPERS
+// ════════════════════════════════════════════════
+function go(screenId) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById(screenId);
+  if (target) target.classList.add('active');
+  window.scrollTo(0, 0);
+
+  // Screen-specific setup
+  if (screenId === 's-team-invite' && teamDoc) {
+    el('invite-code-display').textContent = teamDoc.code || '------';
+    const mlist = el('members-list');
+    mlist.innerHTML = teamMembers.map(m => `
+      <div class="settle-row">
+        <div class="avatar av-teal">${m.name[0]}</div>
+        <div style="flex:1;font-size:14px;font-weight:500;">${esc(m.name)}</div>
+        ${m.uid===currentUser?.uid ? '<span class="chip chip-teal">Вы</span>' : ''}
+      </div>`).join('');
+  }
+  // gen-payer select removed; openGeneralExpense() handles init now
+  if (screenId === 's-home') { el('home-team-name').textContent = teamDoc?.name || 'Команда'; el('home-user-name').textContent = userDoc?.name || ''; }
+}
+
+function populatePayerSelect(selectId) {
+  const sel = el(selectId);
+  if (!sel) return;
+  sel.innerHTML = teamMembers.map(m =>
+    `<option value="${m.uid}"${m.uid===currentUser?.uid?' selected':''}>${esc(m.name)}</option>`).join('');
+}
+
+function updateProfileUI() {
+  if (!userDoc) return;
+  el('profile-name').textContent = userDoc.name || '';
+  el('profile-phone').textContent = userDoc.phone || '';
+  el('profile-avatar').textContent = (userDoc.name||'А')[0];
+  el('profile-team').textContent = teamDoc?.name || '—';
+  el('home-user-name').textContent = userDoc.name || '';
+  el('home-team-name').textContent = teamDoc?.name || 'Команда';
+}
+
+function switchAuthTab(tab) {
+  el('tab-login').style.display = tab==='login' ? '' : 'none';
+  el('tab-register').style.display = tab==='register' ? '' : 'none';
+  el('seg-login').classList.toggle('active', tab==='login');
+  el('seg-register').classList.toggle('active', tab==='register');
+}
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  el('theme-btn').textContent = next==='dark' ? '☀️ Светлая' : '🌙 Тёмная';
+  localStorage.setItem('sc_theme', next);
+}
+
+function openModal(id) { el(id).classList.add('open'); }
+function closeModal(id) { el(id).classList.remove('open'); }
+
+let toastTimer;
+function toast(msg) {
+  const t = el('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function el(id) { return document.getElementById(id); }
+function v(id) { const e = el(id); return e ? e.value : ''; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmt(n) { return Math.round(n||0).toLocaleString('ru-RU'); }
+function fmtDate(d) {
+  if (!d) return '';
+  return d.toLocaleDateString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+function showEl(id, msg) { const e=el(id); if(e){e.style.display=''; e.textContent=msg||'';} }
+function hideEl(id) { const e=el(id); if(e) e.style.display='none'; }
+
+// ════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════
+(function boot() {
+  // Theme
+  const theme = localStorage.getItem('sc_theme');
+  if (theme) { document.documentElement.setAttribute('data-theme', theme); el('theme-btn').textContent = theme==='dark'?'☀️ Светлая':'🌙 Тёмная'; }
+
+  // Firebase config — hardcoded for splitcheck-69360
+  const HARDCODED_CFG = {
+    apiKey: "AIzaSyDsT26jZPY3KSaNTvr23AslN_UzdqlxWTs",
+    authDomain: "splitcheck-69360.firebaseapp.com",
+    projectId: "splitcheck-69360",
+    storageBucket: "splitcheck-69360.firebasestorage.app",
+    messagingSenderId: "668368094902",
+    appId: "1:668368094902:web:4febf00673b71556ee0817"
+  };
+  localStorage.setItem('sc_firebase_config', JSON.stringify(HARDCODED_CFG));
+  try {
+    initFirebase(HARDCODED_CFG);
+    // Не делаем go('s-auth') — onAuthStateChanged сам решит куда идти
+  } catch(e) {
+    console.error('Firebase boot error:', e);
+    go('s-fb-setup');
+  }
+
+  // OneSignal инициализируется позже через requestNotifPermission() после логина
+
+  // Close modal on overlay click
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => { if(e.target===overlay) overlay.classList.remove('open'); });
+  });
+})();
+</script>
+</body>
+</html>
