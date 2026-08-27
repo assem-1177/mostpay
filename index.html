@@ -2465,18 +2465,53 @@ function renderSettlement(expenseData, selections, participants, isPending) {
 // ════════════════════════════════════════════════
 // EXPENSE DETAIL
 // ════════════════════════════════════════════════
+let _expenseDetailUnsub = null; // realtime listener for expense detail
+
 async function openExpenseDetail(id) {
   activeExpenseId = id;
   el('detail-title').textContent = 'Загрузка...';
   el('detail-date').textContent = '';
   el('expense-detail-content').innerHTML = '<div class="spinner"></div>';
   go('s-expense-detail');
+
+  // Cancel previous listener if any
+  if (_expenseDetailUnsub) { _expenseDetailUnsub(); _expenseDetailUnsub = null; }
+
+  // For pending expenses use realtime listener; otherwise one-time get
+  // We start with a get to decide, then upgrade to listener if pending
   try {
     const snap = await db.collection('expenses').doc(id).get();
     if (!snap.exists) { toast('Расход не найден'); go('s-home'); return; }
     activeExpenseData = { id: snap.id, ...snap.data() };
     renderExpenseDetail(activeExpenseData);
+
+    // If pending — subscribe to live updates so everyone sees changes in real-time
+    if (activeExpenseData.status === 'pending_confirmation') {
+      _expenseDetailUnsub = db.collection('expenses').doc(id).onSnapshot(snap2 => {
+        if (!snap2.exists) return;
+        const updated = { id: snap2.id, ...snap2.data() };
+        activeExpenseData = updated;
+        window._pendingExpenseData = updated;
+        // If it became 'open' — someone's confirm triggered final calculation
+        if (updated.status === 'open' && currentScreen() === 's-expense-detail') {
+          if (_expenseDetailUnsub) { _expenseDetailUnsub(); _expenseDetailUnsub = null; }
+          const participants = updated.participants || [];
+          renderSettlement(updated, updated.selections || {}, participants, false);
+          go('s-settlement');
+          return;
+        }
+        // Re-render pending view (live updates of who confirmed what)
+        if (updated.status === 'pending_confirmation' && currentScreen() === 's-expense-detail') {
+          renderPendingConfirmation(updated);
+        }
+      });
+    }
   } catch(e) { toast(e.message); }
+}
+
+function currentScreen() {
+  const active = document.querySelector('.screen.active');
+  return active ? active.id : null;
 }
 
 function computeDebtsFromExpense(e) {
@@ -2727,19 +2762,58 @@ function renderPendingConfirmation(e) {
   const confirmedCount = Object.values(e.selections||{}).filter(s => s.confirmed).length;
   const totalCount = (e.participants||[]).length;
   const avatarColors = ['av-teal','av-purple','av-amber','av-green','av-blue'];
+  const participants = e.participants || [];
 
-  // Init temp selections from saved dishSel
+  // Keep my temp selections in sync (don't overwrite if already editing)
   window._pendingExpenseId = e.id;
   window._pendingExpenseData = e;
-  window._myConfirmSel = (mySelection && mySelection.dishSel) ? {...mySelection.dishSel} : {};
+  if (!window._myConfirmSel || window._myConfirmSelExpenseId !== e.id) {
+    window._myConfirmSel = (mySelection && mySelection.dishSel) ? {...mySelection.dishSel} : {};
+    window._myConfirmSelExpenseId = e.id;
+  }
+
+  // ── Helper: shared "who selected what" overview (visible to everyone) ──
+  function buildSelectionOverview() {
+    const confirmed = participants.filter(p => (e.selections||{})[p.uid]?.confirmed);
+    if (!confirmed.length) return '';
+    let out = `<div class="card" style="margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">
+        👁 Кто что выбрал (${confirmedCount}/${totalCount} подтвердили)
+      </div>`;
+    (e.items||[]).forEach((item, idx) => {
+      if (item.shared) return; // shared items are obvious
+      const itemTotal = (item.qty||1) * item.price;
+      // Collect who selected this item
+      const full = [], half = [];
+      confirmed.forEach(p => {
+        const sel = ((e.selections||{})[p.uid]?.dishSel || {})[idx] || 'none';
+        if (sel === 'full') full.push(p.name.split(' ')[0]);
+        else if (sel === 'half') half.push(p.name.split(' ')[0]);
+      });
+      if (!full.length && !half.length) return; // nobody selected → skip
+      let names = '';
+      if (full.length) names += full.map(n=>`<span style="background:var(--success-light);color:var(--success);padding:2px 7px;border-radius:99px;font-size:11px;font-weight:600;">${esc(n)}</span>`).join(' ');
+      if (half.length) names += ' ' + half.map(n=>`<span style="background:var(--warn-light);color:var(--warn);padding:2px 7px;border-radius:99px;font-size:11px;font-weight:600;">${esc(n)} ½</span>`).join(' ');
+      out += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="font-size:13px;font-weight:600;flex:1;">${esc(item.name)}</div>
+          <div style="font-size:12px;color:var(--text2);white-space:nowrap;">${fmt(itemTotal)} ₸</div>
+        </div>
+        <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">${names}</div>
+      </div>`;
+    });
+    out += '</div>';
+    return out;
+  }
 
   let html = '';
 
   if (mySelection && !mySelection.confirmed) {
     // ── I haven't confirmed yet — show my dish-select ──
     el('detail-title').textContent = 'Отметьте свои блюда';
+
     html += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px;padding:0 2px;">
-      Нажмите на блюдо чтобы отметить: 🟢 полностью ел, 🟡 делил с кем-то, серый — не ел
+      Нажмите на блюдо: 🟢 ел полностью · 🟡 делил · ⬜ не ел
     </div>`;
 
     html += `<div id="my-confirm-items">`;
@@ -2748,7 +2822,7 @@ function renderPendingConfirmation(e) {
       const sel = window._myConfirmSel[idx] || 'none';
       if (item.shared) {
         const perPerson = Math.round(itemTotal / totalCount);
-        html += `<div style="background:var(--accent-light);border-radius:12px;padding:12px;margin-bottom:10px;">
+        html += `<div style="background:var(--accent-light);border-radius:12px;padding:12px;margin-bottom:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
             <div style="font-size:12px;color:var(--text2);">${fmt(itemTotal)} ₸</div>
@@ -2760,12 +2834,12 @@ function renderPendingConfirmation(e) {
       const selStyle = sel==='full' ? 'background:var(--success);color:#fff;border-color:var(--success);'
                       : sel==='half' ? 'background:var(--warn);color:#fff;border-color:var(--warn);'
                       : 'background:var(--surface2);color:var(--text2);border-color:var(--border);';
-      const selLabel = sel==='full' ? '🟢 Ел полностью' : sel==='half' ? '🟡 Делил' : '⬜ Не ел';
+      const selLabel = sel==='full' ? '🟢 Полностью' : sel==='half' ? '🟡 Делил' : '⬜ Не ел';
       html += `<div onclick="toggleMyItem(${idx})" id="my-item-${idx}"
         style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;border:2px solid;margin-bottom:8px;cursor:pointer;transition:all 0.15s;${selStyle}">
         <div>
           <div style="font-size:14px;font-weight:600;">${esc(item.name)}</div>
-          <div style="font-size:12px;opacity:0.8;">${item.qty}× ${fmt(item.price)} ₸ = ${fmt(itemTotal)} ₸</div>
+          <div style="font-size:12px;opacity:0.75;">${item.qty}× ${fmt(item.price)} ₸ = ${fmt(itemTotal)} ₸</div>
         </div>
         <div style="font-size:13px;font-weight:600;white-space:nowrap;" id="my-item-label-${idx}">${selLabel}</div>
       </div>`;
@@ -2773,23 +2847,36 @@ function renderPendingConfirmation(e) {
     html += `</div>`;
 
     html += `<div style="background:var(--surface2);border-radius:12px;padding:12px;margin:12px 0;display:flex;justify-content:space-between;">
-      <span style="font-size:14px;color:var(--text2);">Моя доля</span>
+      <span style="font-size:14px;color:var(--text2);">Моя предварительная доля</span>
       <span style="font-size:16px;font-weight:700;color:var(--accent);" id="my-confirm-total">0 ₸</span>
     </div>`;
 
-    html += `<button class="btn btn-primary" onclick="confirmMyItems()">✅ Подтвердить мою долю</button>`;
+    html += `<button class="btn btn-primary" onclick="confirmMyItems()">✅ Подтвердить</button>`;
+
+    // Show what others already selected (below the form)
+    const overview = buildSelectionOverview();
+    if (overview) html += `<div style="margin-top:16px;">${overview}</div>`;
 
   } else {
-    // ── I confirmed, waiting for others ──
-    el('detail-title').textContent = 'Ожидание участников';
-    html += `<div class="card" style="text-align:center;padding:20px;">
-      <div style="font-size:36px;margin-bottom:8px;">⏳</div>
-      <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Вы подтвердили ✓</div>
-      <div style="font-size:13px;color:var(--text2);">Ждём остальных участников</div>
+    // ── I confirmed or I'm payer — show progress + what everyone selected ──
+    const iConfirmed = mySelection && mySelection.confirmed;
+    el('detail-title').textContent = iConfirmed ? 'Ожидаем участников' : 'Статус подтверждений';
+
+    // Progress bar
+    const pct = Math.round(confirmedCount / totalCount * 100);
+    html += `<div class="card" style="padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:14px;font-weight:600;">Подтвердили</span>
+        <span style="font-size:16px;font-weight:800;color:var(--accent);">${confirmedCount} / ${totalCount}</span>
+      </div>
+      <div style="height:8px;background:var(--border);border-radius:99px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:99px;transition:width 0.4s;"></div>
+      </div>
     </div>`;
 
-    html += `<div class="card"><div class="card-title">Прогресс (${confirmedCount} из ${totalCount})</div>`;
-    (e.participants||[]).forEach((p, i) => {
+    // Who confirmed / who hasn't
+    html += `<div class="card"><div class="card-title">Участники</div>`;
+    participants.forEach((p, i) => {
       const sel = (e.selections||{})[p.uid] || {};
       const isMe = p.uid === currentUser.uid;
       const confirmed = sel.confirmed;
@@ -2797,11 +2884,16 @@ function renderPendingConfirmation(e) {
         <div class="avatar ${avatarColors[i%5]}" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
         <div style="flex:1;font-size:14px;font-weight:${isMe?'700':'400'};">${esc(p.name)}${isMe?' (Вы)':''}</div>
         ${confirmed
-          ? `<span style="font-size:13px;color:var(--success);font-weight:700;">✓ Подтвердил</span>`
-          : `<span style="font-size:12px;color:var(--text3);">⏳ ожидает</span>`}
+          ? `<span style="font-size:13px;color:var(--success);font-weight:700;">✓ подтвердил</span>`
+          : `<span style="font-size:12px;color:var(--text3);">⏳ не ответил</span>`}
       </div>`;
     });
     html += '</div>';
+
+    // Selection overview — what each confirmed person chose
+    const overview = buildSelectionOverview();
+    if (overview) html += overview;
+
     html += `<button class="btn btn-secondary" onclick="go('s-home')" style="margin-top:4px;">На главную</button>`;
   }
 
@@ -3135,6 +3227,11 @@ async function markPaid(payeeUid, amount) {
 // UI HELPERS
 // ════════════════════════════════════════════════
 function go(screenId) {
+  // Cancel expense detail realtime listener when leaving that screen
+  if (screenId !== 's-expense-detail' && _expenseDetailUnsub) {
+    _expenseDetailUnsub();
+    _expenseDetailUnsub = null;
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = document.getElementById(screenId);
   if (target) target.classList.add('active');
