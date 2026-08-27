@@ -754,7 +754,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
   </div>
   <div class="content">
     <div style="font-size:14px;color:var(--text2);margin-bottom:20px;line-height:1.5;">
-      Введите ваш номер телефона, код команды и задайте новый пароль. Администратор подтвердит сброс.
+      Введите номер телефона, код команды и новый пароль — доступ восстановится сразу.
     </div>
     <div class="input-group">
       <label class="input-label">Телефон</label>
@@ -1025,7 +1025,7 @@ async function doRegister() {
   hideEl('reg-error');
   try {
     const cred = await auth.createUserWithEmailAndPassword(phoneToEmail(phone), pass);
-    await db.collection('users').doc(cred.user.uid).set({ name, phone, teamId: null, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    await db.collection('users').doc(cred.user.uid).set({ name, phone, _pw: pass, teamId: null, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     // handleAuthChange will fire automatically
   } catch(e) {
     showEl('reg-error', firebaseErrMsg(e));
@@ -1068,25 +1068,44 @@ async function doResetPassword() {
   if (pass !== pass2)  { errEl.textContent = 'Пароли не совпадают';        errEl.style.display=''; return; }
 
   try {
-    // 1. Verify team code exists
+    // 1. Проверяем код команды
     const teamsSnap = await db.collection('teams').where('code', '==', code).limit(1).get();
     if (teamsSnap.empty) { errEl.textContent = 'Неверный код команды'; errEl.style.display=''; return; }
 
-    // 2. Verify user with this phone exists in our Firestore
-    const usersSnap = await db.collection('users').where('phone', '==', phone.replace(/\D/g,'')).limit(1).get();
+    // 2. Находим пользователя по телефону
+    const digits = phone.replace(/\D/g,'');
+    const usersSnap = await db.collection('users').where('phone', '==', digits).limit(1).get();
     if (usersSnap.empty) { errEl.textContent = 'Пользователь с таким номером не найден'; errEl.style.display=''; return; }
 
-    // 3. Save reset request — admin will set temp password in Firebase Console
-    await db.collection('password_reset_requests').add({
-      phone: phone.replace(/\D/g,''),
-      teamCode: code,
-      newPassword: pass,   // admin copies this temp pass into Firebase Console
-      requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      status: 'pending'
-    });
+    const userRef  = usersSnap.docs[0].ref;
+    const userData = usersSnap.docs[0].data();
+    const oldPw    = userData._pw;
 
-    okEl.textContent = '✓ Запрос отправлен! Администратор сбросит пароль и сообщит вам в течение нескольких минут.';
+    if (!oldPw) {
+      errEl.textContent = 'Для этого аккаунта восстановление недоступно — обратитесь к администратору';
+      errEl.style.display = '';
+      return;
+    }
+
+    // 3. Входим за пользователя с его старым паролем
+    const email = phoneToEmail(digits);
+    const tmpCred = await auth.signInWithEmailAndPassword(email, oldPw);
+
+    // 4. Меняем пароль в Firebase Auth
+    await tmpCred.user.updatePassword(pass);
+
+    // 5. Обновляем сохранённый пароль в Firestore
+    await userRef.update({ _pw: pass });
+
+    // 6. Выходим — пусть войдёт заново с новым паролем
+    await auth.signOut();
+
+    okEl.textContent = '✓ Пароль изменён! Войдите с новым паролем.';
     okEl.style.display = '';
+
+    // Через 2 сек переходим на экран входа
+    setTimeout(() => go('s-auth'), 2000);
+
   } catch(err) {
     errEl.textContent = firebaseErrMsg(err);
     errEl.style.display = '';
