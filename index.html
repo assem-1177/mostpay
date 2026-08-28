@@ -1595,13 +1595,12 @@ function parseReceiptText(text) {
       .replace(/(\d)\.\s+(\d{3}[,.])/g, '$1 $2'); // fix OCR "11. 000,00" → "11 000,00"
     // ── Pipe-table receipts: replace | separators with spaces ─────────────
     // Some receipt printers use | as column separator; Tesseract reads them literally.
-    // Strip leading/trailing pipes and replace inner pipes with spaces.
-    if ((line.match(/\|/g) || []).length >= 2) {
+    if (line.includes('|')) {
       line = line.replace(/\|/g, ' ').replace(/\s{2,}/g, ' ').trim();
     }
-    // Strip trailing non-numeric noise chars that block price extraction
-    // e.g. trailing "\", ".", "!", lone letters after numbers
-    line = line.replace(/[\s\\]+$/, '').trim();
+    // Strip trailing non-numeric noise chars that block price extraction:
+    // trailing "\", "." (e.g. "10500. \"), "!" — but NOT comma/digits (those are prices)
+    line = line.replace(/[\s\\.!\\\\]+$/, '').trim();
 
     if (line.length < 2) continue;
     if (/^[-*=.]{3,}/.test(line)) continue;       // separator lines "----"
