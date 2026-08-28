@@ -1733,9 +1733,17 @@ function parseReceiptText(text) {
     // ── Strip trailing unit price from name ────────────────────────────────────────
     // Receipts with Цена|Кол|Сумма columns leave the unit price stuck to the name:
     // "баранина 2100" (price=2100) → strip trailing "2100" → "баранина"
+    // Also match trailing dot: "шашлык из утки. 2100." → strip "2100." too
     {
-      const stripped = name.replace(new RegExp('\\s+' + String(price) + '\\s*$'), '').trim();
+      const stripped = name.replace(new RegExp('\\s+' + String(price) + '[.,]?\\s*$'), '').trim();
       if (stripped.length >= 2) name = stripped;
+    }
+    // ── Strip trailing punctuation artifacts left in name (!, ?, .) ───────────────
+    name = name.replace(/[!?.]+$/, '').trim();
+    // ── Strip leading single-char OCR artifact (e.g. "А куриное" → "куриное") ────
+    {
+      const leadCharM = name.match(/^[А-ЯA-Z]\s+([А-Яа-яёЁ].{2,})$/);
+      if (leadCharM) name = leadCharM[1];
     }
 
     if (name.length < 2) continue;
