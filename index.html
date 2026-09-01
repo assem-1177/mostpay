@@ -1584,6 +1584,7 @@ function parseReceiptText(text) {
     parseFloat(intPart.replace(/\s/g, '') + '.' + decPart);
 
   let pendingTotalIsSubtotal = null; // if a total-label line had no price, wait for next line
+  let pendingItemName = null;        // if item name appeared on previous line without a price
 
   for (let li = 0; li < lines.length; li++) {
     const rawLine = lines[li];
@@ -1624,6 +1625,7 @@ function parseReceiptText(text) {
 
     // ── Detect totals FIRST (before skipPattern, so НДС on same line won't block it) ──
     if (totalPattern.test(line)) {
+      pendingItemName = null;
       // Try standard match first; if it fails, normalize Cyrillic digit look-alikes and retry
       let m = line.match(TOTAL_PRICE_RE);
       if (!m) {
@@ -1655,6 +1657,7 @@ function parseReceiptText(text) {
 
     // ── Detect service charge (before skipPattern so it isn't dropped) ──
     if (servicePattern.test(line)) {
+      pendingItemName = null;
       let m = line.match(TOTAL_PRICE_RE);
       if (!m) {
         const lineD = normOCRDigits(line);
@@ -1667,7 +1670,7 @@ function parseReceiptText(text) {
       continue; // still skip from items — we'll add it as a synthetic item below
     }
 
-    if (skipPattern.test(line)) continue;
+    if (skipPattern.test(line)) { pendingItemName = null; continue; }
 
     // ── Extract price from end of line ────────────────────────────────
     // Requires "N NNN,NN" format — the thousands-space pattern prevents
@@ -1680,9 +1683,30 @@ function parseReceiptText(text) {
     } else {
       // Fallback: plain integer ≥ 3 digits at end (no decimals)
       const priceInt = line.match(/\s+(\d{3,})\s*$/);
-      if (!priceInt) continue;
+      if (!priceInt) {
+        // No price on this line — if it contains Cyrillic text, save as potential item name.
+        // Handles receipts where Tesseract splits "баранина" onto one line and "2100 7 14700" onto the next.
+        if (/[а-яёА-ЯЁ]{2,}/.test(line)) {
+          pendingItemName = line;
+        } else {
+          pendingItemName = null;
+        }
+        continue;
+      }
       price = parseFloat(priceInt[1]);
       beforePrice = line.slice(0, line.length - priceInt[0].length).trim();
+    }
+
+    // ── Use pending name if beforePrice has no Cyrillic text ────────────────────
+    // This pairs a name-only line with the following numbers-only line.
+    // E.g.  line N:   "баранина"          → pendingItemName = "баранина"
+    //       line N+1: "2100 7 14700"      → beforePrice="2100 7", no Cyrillic
+    //                                       → prepend name: "баранина 2100 7"
+    if (pendingItemName !== null) {
+      if (!beforePrice || /^[\d\s]*$/.test(beforePrice)) {
+        beforePrice = pendingItemName + (beforePrice ? ' ' + beforePrice : '');
+      }
+      pendingItemName = null;
     }
 
     if (isNaN(price) || price <= 0 || price > 500000) continue;
@@ -1759,6 +1783,56 @@ function parseReceiptText(text) {
     ) lowConfidence = true;
 
     items.push({ name, qty, price, lowConfidence });
+  }
+
+  // ── Column-order OCR fallback ─────────────────────────────────────────────────
+  // Handles the case where Tesseract reads the receipt table column-by-column:
+  //   names:   "баранина", "шашлык из утки", "джимяр", ...  (one per line)
+  //   numbers: "2100 7 14700", "2100 5 10500", "2100 1 2100", ...  (one per line)
+  // When this happens, the main loop produces 0 items. We detect it and pair
+  // name lines with number lines by matching price × qty = lineTotal.
+  if (items.length === 0 && total > 0) {
+    const colNames = [];
+    const colNums  = [];
+    for (const rawLine of lines) {
+      const l = rawLine.trim();
+      if (!l || l.length < 2) continue;
+      if (totalPattern.test(l) || servicePattern.test(l) || skipPattern.test(l)) continue;
+      if (/[а-яёА-ЯЁ]{2,}/.test(l) && !/\d{4,}/.test(l)) {
+        // Line has Cyrillic text, no 4+ digit number → likely a name (strip leading row#)
+        colNames.push(l.replace(/^\d{1,2}\s+/, '').trim());
+      } else if (/^\d[\d\s]*$/.test(l)) {
+        // Pure digits + spaces → price/qty/total numbers
+        const nums = l.trim().split(/\s+/).map(Number).filter(n => n >= 1 && n <= 500000);
+        if (nums.some(n => n >= 100)) colNums.push(nums);
+      }
+    }
+    if (colNames.length > 0 && colNums.length > 0) {
+      const pairCount = Math.min(colNames.length, colNums.length);
+      for (let k = 0; k < pairCount; k++) {
+        const name = colNames[k];
+        const nums = colNums[k];
+        // Find qty × unitPrice = lineTotal triplet (validates the combination)
+        let parsed = null;
+        const sorted = [...nums].sort((a, b) => a - b);
+        outer: for (const qty of sorted.filter(n => n >= 1 && n <= 20)) {
+          for (const uprice of sorted.filter(n => n >= 100)) {
+            if (sorted.includes(qty * uprice) && qty * uprice !== uprice) {
+              parsed = { price: uprice, qty };
+              break outer;
+            }
+          }
+        }
+        if (!parsed) {
+          // No verified triplet — use largest number as the line total, qty=1
+          const lineTotal = Math.max(...nums);
+          if (lineTotal >= 100) parsed = { price: lineTotal, qty: 1 };
+        }
+        if (parsed && parsed.price >= 100 && name.length >= 2) {
+          items.push({ name, qty: parsed.qty, price: parsed.price, lowConfidence: true });
+        }
+      }
+    }
   }
 
   // ── Second-pass fallback: hunt for subtotal/total numbers missed above ─────────
