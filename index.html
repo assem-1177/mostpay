@@ -1772,6 +1772,22 @@ function parseReceiptText(text) {
 
     if (name.length < 2) continue;
     if (/^\d/.test(name)) continue;           // line started with a number, not a name
+
+    // ── Garbled Сумма fallback: OCR misread line total (e.g. 14700→140) ──────────
+    // When unit price < 100 (implausible), the Цена column value may still be
+    // embedded in the name (wasn't stripped because it differs from garbled Сумма).
+    // e.g. "Баранина 2100" with garbled price=20 → detect "2100" → set price=2100
+    if (price < 100) {
+      const fallbackM = name.match(/\s+(\d{3,})[.,]?\s*$/);
+      if (fallbackM) {
+        const candidatePrice = parseFloat(fallbackM[1]);
+        if (candidatePrice >= 100 && candidatePrice <= 500000) {
+          price = candidatePrice;
+          name = name.slice(0, name.length - fallbackM[0].length).trim();
+        }
+      }
+    }
+
     if (price < 100) continue;               // items under 100 ₸ are OCR artifacts
 
     // Flag name-level OCR noise: stray hard/soft signs, lone Cyrillic consonants,
