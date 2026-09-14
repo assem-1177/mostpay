@@ -2993,6 +2993,7 @@ function renderExpenseDetail(e) {
       <div style="flex:1;font-size:14px;${isMe?'font-weight:700;':''}">${esc(p.name)}${isMe?' (Вы)':''}${statusChip}</div>
       <div style="font-size:14px;font-weight:600;">${fmt(share)} ₸</div>
       ${iAmPayer && !isPayer && !sel.paid && !sel.declined ? `<button class="btn btn-sm btn-ghost" style="padding:4px 8px;font-size:12px;" onclick="openDiscountModal('${p.uid}','${esc(p.name)}',${share})">Скидка</button>` : ''}
+      ${(iAmPayer || e.createdBy === currentUser.uid) && e.type === 'general' && e.status !== 'settled' && !isPayer ? `<button onclick="removeParticipantFromGeneral('${e.id}','${p.uid}')" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px;" title="Удалить участника">🗑</button>` : ''}
     </div>`;
   });
   html += `<div style="padding:10px 0;"></div></div></div>`;
@@ -3348,11 +3349,8 @@ function showAddParticipantGeneral(expenseId) {
         <span style="font-size:16px;font-weight:700;">Добавить участника</span>
         <button onclick="document.getElementById('add-participant-modal').remove()" style="background:none;border:none;font-size:22px;color:var(--text2);cursor:pointer;">✕</button>
       </div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">
-        Сумма чека пересчитается поровну между всеми участниками.
-      </div>
       ${available.map(m => `
-        <div onclick="addParticipantToGeneral('${expenseId}','${m.uid}','${esc(m.name)}')"
+        <div onclick="showAddMethodChoice('${expenseId}','${m.uid}','${esc(m.name)}')"
           style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:8px;cursor:pointer;background:var(--surface2);">
           <div class="avatar av-teal" style="width:38px;height:38px;font-size:15px;">${esc(m.name[0])}</div>
           <div style="font-size:15px;font-weight:600;">${esc(m.name)}</div>
@@ -3363,37 +3361,225 @@ function showAddParticipantGeneral(expenseId) {
   overlay.addEventListener('click', ev => { if (ev.target === overlay) overlay.remove(); });
 }
 
-async function addParticipantToGeneral(expenseId, uid, name) {
+function showAddMethodChoice(expenseId, uid, name) {
+  document.getElementById('add-participant-modal')?.remove();
+  const e = activeExpenseData;
+  const total = e.total || 0;
+  const oldN = (e.participants||[]).length;
+  const newN = oldN + 1;
+  const newShare = Math.round(total / newN);
+  const oldShare = oldN > 0 ? Math.round(total / oldN) : 0;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'add-participant-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:flex-end;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:390px;padding:20px 16px 36px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:16px;font-weight:700;">Как добавить ${esc(name)}?</span>
+        <button onclick="document.getElementById('add-participant-modal').remove()" style="background:none;border:none;font-size:22px;color:var(--text2);cursor:pointer;">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Итого: ${fmt(total)} ₸ · сейчас ${oldN} чел.</div>
+
+      <div onclick="addParticipantToGeneral('${expenseId}','${uid}','${esc(name)}','reduce')"
+        style="padding:14px;border-radius:12px;border:1.5px solid var(--accent);margin-bottom:10px;cursor:pointer;">
+        <div style="font-size:15px;font-weight:700;color:var(--accent);margin-bottom:4px;">↘ Уменьшить у всех</div>
+        <div style="font-size:13px;color:var(--text2);">Сумма остаётся ${fmt(total)} ₸. Доля каждого: ${fmt(oldShare)} → ${fmt(newShare)} ₸. Кто уже оплатил — вы вернёте им разницу ${fmt(oldShare - newShare)} ₸.</div>
+      </div>
+
+      <div onclick="addParticipantToGeneral('${expenseId}','${uid}','${esc(name)}','increase')"
+        style="padding:14px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:10px;cursor:pointer;">
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px;">↗ Увеличить общую сумму</div>
+        <div style="font-size:13px;color:var(--text2);">Остальные платят как прежде (${fmt(oldShare)} ₸). ${esc(name)} добавляется с такой же долей ${fmt(oldShare)} ₸. Итого станет ${fmt(total + oldShare)} ₸.</div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', ev => { if (ev.target === overlay) overlay.remove(); });
+}
+
+async function addParticipantToGeneral(expenseId, uid, name, mode) {
   document.getElementById('add-participant-modal')?.remove();
   try {
     const snap = await db.collection('expenses').doc(expenseId).get();
     const e = { id: snap.id, ...snap.data() };
-    const newParticipants = [...(e.participants||[]), { uid, name }];
-    const total = e.total || 0;
-    const n = newParticipants.length;
-    const equalShare = Math.round(total / n);
+    const oldParticipants = e.participants || [];
+    const newParticipants = [...oldParticipants, { uid, name }];
+    const oldN = oldParticipants.length;
+    const newN = newParticipants.length;
+    const oldTotal = e.total || 0;
+    const debtStatuses = e.debtStatuses || {};
 
-    // Recalculate selections with equal shares
+    // Find main payer uid
+    let payerUid = e.payerId;
+    if (e.payers && e.payers.length === 1) payerUid = e.payers[0].uid;
+
+    let newTotal, newSelections, newDebtStatuses;
+
+    if (mode === 'reduce') {
+      // Total stays same, everyone's share decreases
+      newTotal = oldTotal;
+      const newShare = Math.round(newTotal / newN);
+      newSelections = {};
+      const reverseDebts = {}; // payer owes these people: uid → amount
+
+      newParticipants.forEach((p, i) => {
+        const share = i === newN - 1 ? newTotal - newShare * (newN - 1) : newShare;
+        const oldSel = (e.selections || {})[p.uid] || {};
+
+        if (p.uid === uid) {
+          // New participant
+          newSelections[p.uid] = { myShare: share };
+        } else {
+          const oldShare = oldSel.myShare || Math.round(oldTotal / oldN);
+          const alreadyPaid = (payerUid && debtStatuses[p.uid + '__' + payerUid] === 'paid') || oldSel.paid;
+
+          newSelections[p.uid] = { ...oldSel, myShare: share };
+
+          if (alreadyPaid && oldShare > share) {
+            // They overpaid — payer now owes them back the difference
+            reverseDebts[p.uid] = { name: p.name, amount: oldShare - share };
+          }
+        }
+      });
+
+      // Compute debt balances accounting for reverse debts
+      const net = {};
+      newParticipants.forEach(p => { net[p.uid] = { uid: p.uid, name: p.name, bal: 0 }; });
+      if (e.payers && e.payers.length) {
+        e.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+      } else if (payerUid && net[payerUid]) {
+        net[payerUid].bal += newTotal;
+      }
+      newParticipants.forEach(p => { if (net[p.uid]) net[p.uid].bal -= newSelections[p.uid].myShare; });
+      // Adjust for already-paid reverse debts: mark them as settled (so they don't show as pending)
+      Object.entries(reverseDebts).forEach(([pUid, rd]) => {
+        if (net[pUid]) net[pUid].bal += rd.amount; // they "get back" the difference
+        if (payerUid && net[payerUid]) net[payerUid].bal -= rd.amount;
+      });
+
+      const pos = Object.values(net).filter(x => x.bal > 0.5).sort((a,b) => b.bal - a.bal);
+      const neg = Object.values(net).filter(x => x.bal < -0.5).sort((a,b) => a.bal - b.bal);
+      const newDebts = [];
+      const pc = pos.map(x=>({...x})), nc = neg.map(x=>({...x}));
+      let pi=0, ni=0;
+      while (pi<pc.length && ni<nc.length) {
+        const amt = Math.min(pc[pi].bal, -nc[ni].bal);
+        if (amt >= 0.5) newDebts.push({ fromUid: nc[ni].uid, from: nc[ni].name, toUid: pc[pi].uid, to: pc[pi].name, amount: Math.round(amt) });
+        pc[pi].bal -= amt; nc[ni].bal += amt;
+        if (pc[pi].bal < 0.5) pi++;
+        if (-nc[ni].bal < 0.5) ni++;
+      }
+
+      // Keep paid statuses only for debts that still exist in the same direction
+      newDebtStatuses = {};
+      newDebts.forEach(d => {
+        const k = d.fromUid + '__' + d.toUid;
+        if (debtStatuses[k]) newDebtStatuses[k] = debtStatuses[k];
+      });
+
+      await db.collection('expenses').doc(expenseId).update({
+        participants: newParticipants,
+        selections: newSelections,
+        debts: newDebts,
+        debtStatuses: newDebtStatuses
+      });
+
+    } else {
+      // Increase total — everyone keeps their share, new person gets same share
+      const oldShare = oldN > 0 ? Math.round(oldTotal / oldN) : 0;
+      newTotal = oldTotal + oldShare;
+      newSelections = {};
+
+      // Keep existing participants' shares as-is
+      oldParticipants.forEach(p => {
+        newSelections[p.uid] = { ...(e.selections || {})[p.uid] || {}, myShare: Math.round(oldTotal / oldN) };
+      });
+      // New participant gets same share
+      newSelections[uid] = { myShare: oldShare };
+
+      const net = {};
+      newParticipants.forEach(p => { net[p.uid] = { uid: p.uid, name: p.name, bal: 0 }; });
+      if (e.payers && e.payers.length) {
+        e.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+      } else if (payerUid && net[payerUid]) {
+        net[payerUid].bal += newTotal;
+      }
+      newParticipants.forEach(p => { if (net[p.uid]) net[p.uid].bal -= newSelections[p.uid].myShare; });
+
+      const pos = Object.values(net).filter(x => x.bal > 0.5).sort((a,b) => b.bal - a.bal);
+      const neg = Object.values(net).filter(x => x.bal < -0.5).sort((a,b) => a.bal - b.bal);
+      const newDebts = [];
+      const pc = pos.map(x=>({...x})), nc = neg.map(x=>({...x}));
+      let pi=0, ni=0;
+      while (pi<pc.length && ni<nc.length) {
+        const amt = Math.min(pc[pi].bal, -nc[ni].bal);
+        if (amt >= 0.5) newDebts.push({ fromUid: nc[ni].uid, from: nc[ni].name, toUid: pc[pi].uid, to: pc[pi].name, amount: Math.round(amt) });
+        pc[pi].bal -= amt; nc[ni].bal += amt;
+        if (pc[pi].bal < 0.5) pi++;
+        if (-nc[ni].bal < 0.5) ni++;
+      }
+
+      // Keep paid statuses
+      newDebtStatuses = {};
+      newDebts.forEach(d => {
+        const k = d.fromUid + '__' + d.toUid;
+        if (debtStatuses[k]) newDebtStatuses[k] = debtStatuses[k];
+      });
+
+      await db.collection('expenses').doc(expenseId).update({
+        participants: newParticipants,
+        selections: newSelections,
+        debts: newDebts,
+        debtStatuses: newDebtStatuses,
+        total: newTotal
+      });
+    }
+
+    const snap2 = await db.collection('expenses').doc(expenseId).get();
+    activeExpenseData = { id: snap2.id, ...snap2.data() };
+    renderExpenseDetail(activeExpenseData);
+    toast(`${name} добавлен ✓`);
+    await addNotif(`${userDoc?.name || 'Создатель'} добавил вас в расход «${e.desc || 'Расход'}»`, 'expense').catch(()=>{});
+  } catch(err) {
+    toast('Ошибка: ' + err.message);
+  }
+}
+
+async function removeParticipantFromGeneral(expenseId, uid) {
+  const e = activeExpenseData;
+  if (!e) return;
+  const participant = (e.participants||[]).find(p => p.uid === uid);
+  if (!participant) return;
+  if (!confirm(`Удалить ${participant.name} из расхода и пересчитать суммы?`)) return;
+
+  try {
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const ex = { id: snap.id, ...snap.data() };
+    const newParticipants = (ex.participants||[]).filter(p => p.uid !== uid);
+    const n = newParticipants.length;
+    if (n === 0) { toast('Нельзя удалить последнего участника'); return; }
+
+    const total = ex.total || 0;
+    const equalShare = Math.round(total / n);
     const newSelections = {};
+    const debtStatuses = ex.debtStatuses || {};
+
     newParticipants.forEach((p, i) => {
-      // Last person gets remainder to avoid rounding drift
       const share = i === n - 1 ? total - equalShare * (n - 1) : equalShare;
-      const old = (e.selections||{})[p.uid] || {};
+      const old = (ex.selections || {})[p.uid] || {};
       newSelections[p.uid] = { ...old, myShare: share };
     });
 
-    // Identify payer(s)
-    const payerUids = new Set();
-    if (e.payers && e.payers.length) e.payers.forEach(p => payerUids.add(p.uid));
-    else if (e.payerId && e.payerId !== 'multiple') payerUids.add(e.payerId);
-
     // Recompute debts
+    let payerUid = ex.payerId;
+    if (ex.payers && ex.payers.length === 1) payerUid = ex.payers[0].uid;
+
     const net = {};
     newParticipants.forEach(p => { net[p.uid] = { uid: p.uid, name: p.name, bal: 0 }; });
-    if (e.payers && e.payers.length) {
-      e.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
-    } else if (e.payerId && e.payerId !== 'multiple' && net[e.payerId]) {
-      net[e.payerId].bal += total;
+    if (ex.payers && ex.payers.length) {
+      ex.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+    } else if (payerUid && net[payerUid]) {
+      net[payerUid].bal += total;
     }
     newParticipants.forEach(p => { if (net[p.uid]) net[p.uid].bal -= newSelections[p.uid].myShare; });
 
@@ -3410,18 +3596,24 @@ async function addParticipantToGeneral(expenseId, uid, name) {
       if (-nc[ni].bal < 0.5) ni++;
     }
 
+    // Keep paid statuses for remaining debts
+    const newDebtStatuses = {};
+    newDebts.forEach(d => {
+      const k = d.fromUid + '__' + d.toUid;
+      if (debtStatuses[k]) newDebtStatuses[k] = debtStatuses[k];
+    });
+
     await db.collection('expenses').doc(expenseId).update({
       participants: newParticipants,
       selections: newSelections,
       debts: newDebts,
-      debtStatuses: {}
+      debtStatuses: newDebtStatuses
     });
 
     const snap2 = await db.collection('expenses').doc(expenseId).get();
     activeExpenseData = { id: snap2.id, ...snap2.data() };
     renderExpenseDetail(activeExpenseData);
-    toast(`${name} добавлен, суммы пересчитаны ✓`);
-    await addNotif(`${userDoc?.name || 'Создатель'} добавил вас в расход «${e.desc || 'Расход'}»`, 'expense').catch(()=>{});
+    toast(`${participant.name} удалён из расхода ✓`);
   } catch(err) {
     toast('Ошибка: ' + err.message);
   }
