@@ -3239,11 +3239,82 @@ function renderPendingConfirmation(e) {
     const overview = buildSelectionOverview();
     if (overview) html += overview;
 
+    // ── Add participant button (creator only) ──
+    const isCreator = e.createdBy === currentUser.uid;
+    const payerIsMe = e.payerId === currentUser.uid || (e.payers||[]).some(p => p.uid === currentUser.uid);
+    if (isCreator || payerIsMe) {
+      const existingUids = new Set((e.participants||[]).map(p => p.uid));
+      const available = (teamMembers||[]).filter(m => !existingUids.has(m.uid));
+      if (available.length > 0) {
+        html += `<button class="btn btn-ghost" onclick="showAddParticipantPicker('${e.id}')" style="margin-bottom:8px;">➕ Добавить участника</button>`;
+      }
+    }
+
     html += `<button class="btn btn-secondary" onclick="go('s-home')" style="margin-top:4px;">На главную</button>`;
   }
 
   el('expense-detail-content').innerHTML = html;
   recalcMyConfirmTotal();
+}
+
+// ════════════════════════════════════════════════
+// ADD PARTICIPANT TO EXISTING PENDING EXPENSE
+// ════════════════════════════════════════════════
+function showAddParticipantPicker(expenseId) {
+  const e = window._pendingExpenseData;
+  if (!e) return;
+  const existingUids = new Set((e.participants||[]).map(p => p.uid));
+  const available = (teamMembers||[]).filter(m => !existingUids.has(m.uid));
+  if (!available.length) { toast('Все члены команды уже в чеке'); return; }
+
+  // Build modal overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'add-participant-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:flex-end;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:390px;padding:20px 16px 36px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <span style="font-size:16px;font-weight:700;">Добавить участника</span>
+        <button onclick="document.getElementById('add-participant-modal').remove()" style="background:none;border:none;font-size:22px;color:var(--text2);cursor:pointer;">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">
+        Участник увидит чек и выберет свои блюда. Сумма чека не меняется — перераспределяется между большим числом людей.
+      </div>
+      ${available.map(m => `
+        <div onclick="addParticipantToPending('${expenseId}','${m.uid}','${esc(m.name)}')"
+          style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:8px;cursor:pointer;background:var(--surface2);">
+          <div class="avatar av-teal" style="width:38px;height:38px;font-size:15px;">${esc(m.name[0])}</div>
+          <div style="font-size:15px;font-weight:600;">${esc(m.name)}</div>
+          <div style="margin-left:auto;font-size:18px;color:var(--accent);">＋</div>
+        </div>`).join('')}
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+async function addParticipantToPending(expenseId, uid, name) {
+  document.getElementById('add-participant-modal')?.remove();
+  try {
+    const updateData = {
+      participants: firebase.firestore.FieldValue.arrayUnion({ uid, name })
+    };
+    // Add empty selection entry so they appear in pending view
+    updateData[`selections.${uid}`] = { dishSel: {}, myShare: 0, confirmed: false };
+    await db.collection('expenses').doc(expenseId).update(updateData);
+
+    // Re-fetch and update local data
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const updated = { id: snap.id, ...snap.data() };
+    window._pendingExpenseData = updated;
+    activeExpenseData = updated;
+    renderPendingConfirmation(updated);
+    toast(`${name} добавлен в чек ✓`);
+
+    // Send notification
+    await addNotif(`${userDoc?.name || 'Создатель'} добавил вас в чек «${updated.desc || 'Расход'}»`, 'expense').catch(()=>{});
+  } catch(err) {
+    toast('Ошибка: ' + err.message);
+  }
 }
 
 async function removeParticipantFromPending(expenseId, uid) {
