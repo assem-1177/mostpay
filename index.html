@@ -2931,9 +2931,15 @@ function renderExpenseDetail(e) {
       const stLabel = st==='paid' ? '<span class="chip chip-green" style="font-size:11px;">✓ Оплачено</span>'
                     : st==='declined' ? '<span class="chip chip-red" style="font-size:11px;">✕ Отказался</span>'
                     : '<span style="font-size:12px;color:var(--text3);">ожидает...</span>';
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">
-        <span style="font-size:14px;"><b>${esc(d.from)}</b> ${stLabel}</span>
-        <span style="font-size:15px;font-weight:700;color:${st==='paid'?'var(--success)':st==='declined'?'var(--text3)':'var(--text)'};">${fmt(d.amount)} ₸</span>
+      const manualBtn = st === 'pending'
+        ? `<button class="btn btn-sm btn-primary" style="margin-top:4px;font-size:12px;padding:4px 10px;" onclick="creatorMarkPaid('${e.id}','${d.fromUid}','${d.toUid}',${d.amount})">✓ Отметить оплату</button>`
+        : '';
+      html += `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:14px;"><b>${esc(d.from)}</b> ${stLabel}</span>
+          <span style="font-size:15px;font-weight:700;color:${st==='paid'?'var(--success)':st==='declined'?'var(--text3)':'var(--text)'};">${fmt(d.amount)} ₸</span>
+        </div>
+        ${manualBtn}
       </div>`;
     });
     html += '</div>';
@@ -3859,6 +3865,32 @@ async function confirmDeleteExpense() {
     toast('Расход удалён');
     go('s-home');
   } catch(e) { toast('Ошибка: ' + e.message); }
+}
+
+async function creatorMarkPaid(expenseId, fromUid, toUid, amount) {
+  if (!confirm(`Отметить оплату ${fmt(amount)} ₸ как полученную?`)) return;
+  try {
+    const key = fromUid + '__' + toUid;
+    const updates = {};
+    updates[`debtStatuses.${key}`] = 'paid';
+    updates[`selections.${fromUid}.paid`] = true;
+    await db.collection('expenses').doc(expenseId).update(updates);
+    toast('Оплата отмечена ✓');
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    if (snap.exists) {
+      const data = { id: snap.id, ...snap.data() };
+      const debts = computeDebtsFromExpense(data);
+      const dst = data.debtStatuses || {};
+      const allDone = debts.every(d => {
+        const k = d.fromUid + '__' + d.toUid;
+        return dst[k] === 'paid' || dst[k] === 'declined';
+      });
+      if (allDone && debts.length > 0 && data.status !== 'settled') {
+        await addNotif(`Все рассчитались по «${data.desc}» — можно закрыть в историю`, 'payment').catch(()=>{});
+      }
+    }
+    openExpenseDetail(expenseId);
+  } catch(err) { toast('Ошибка: ' + err.message); }
 }
 
 async function payDebt(expenseId, fromUid, toUid, amount) {
