@@ -3052,6 +3052,15 @@ function renderExpenseDetail(e) {
   });
   const readyForHistory = (allResolved || allDebtsDone) && e.status !== 'settled';
 
+  // ── Add participant button for general expenses (creator/payer only) ──
+  if ((isCreatorOrPayer) && e.type === 'general' && e.status !== 'settled') {
+    const existingUids = new Set((e.participants||[]).map(p => p.uid));
+    const available = (teamMembers||[]).filter(m => !existingUids.has(m.uid));
+    if (available.length > 0) {
+      html += `<button class="btn btn-ghost" onclick="showAddParticipantGeneral('${e.id}')" style="margin-bottom:8px;">➕ Добавить участника</button>`;
+    }
+  }
+
   if (isCreatorOrPayer || canDelete) {
     html += `<div style="display:flex;gap:10px;margin-top:4px;margin-bottom:8px;">`;
     if (isCreatorOrPayer) {
@@ -3312,6 +3321,101 @@ async function addParticipantToPending(expenseId, uid, name) {
 
     // Send notification
     await addNotif(`${userDoc?.name || 'Создатель'} добавил вас в чек «${updated.desc || 'Расход'}»`, 'expense').catch(()=>{});
+  } catch(err) {
+    toast('Ошибка: ' + err.message);
+  }
+}
+
+function showAddParticipantGeneral(expenseId) {
+  const e = activeExpenseData;
+  if (!e) return;
+  const existingUids = new Set((e.participants||[]).map(p => p.uid));
+  const available = (teamMembers||[]).filter(m => !existingUids.has(m.uid));
+  if (!available.length) { toast('Все члены команды уже в расходе'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'add-participant-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:flex-end;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:390px;padding:20px 16px 36px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <span style="font-size:16px;font-weight:700;">Добавить участника</span>
+        <button onclick="document.getElementById('add-participant-modal').remove()" style="background:none;border:none;font-size:22px;color:var(--text2);cursor:pointer;">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">
+        Сумма чека пересчитается поровну между всеми участниками.
+      </div>
+      ${available.map(m => `
+        <div onclick="addParticipantToGeneral('${expenseId}','${m.uid}','${esc(m.name)}')"
+          style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:8px;cursor:pointer;background:var(--surface2);">
+          <div class="avatar av-teal" style="width:38px;height:38px;font-size:15px;">${esc(m.name[0])}</div>
+          <div style="font-size:15px;font-weight:600;">${esc(m.name)}</div>
+          <div style="margin-left:auto;font-size:18px;color:var(--accent);">＋</div>
+        </div>`).join('')}
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', ev => { if (ev.target === overlay) overlay.remove(); });
+}
+
+async function addParticipantToGeneral(expenseId, uid, name) {
+  document.getElementById('add-participant-modal')?.remove();
+  try {
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const e = { id: snap.id, ...snap.data() };
+    const newParticipants = [...(e.participants||[]), { uid, name }];
+    const total = e.total || 0;
+    const n = newParticipants.length;
+    const equalShare = Math.round(total / n);
+
+    // Recalculate selections with equal shares
+    const newSelections = {};
+    newParticipants.forEach((p, i) => {
+      // Last person gets remainder to avoid rounding drift
+      const share = i === n - 1 ? total - equalShare * (n - 1) : equalShare;
+      const old = (e.selections||{})[p.uid] || {};
+      newSelections[p.uid] = { ...old, myShare: share };
+    });
+
+    // Identify payer(s)
+    const payerUids = new Set();
+    if (e.payers && e.payers.length) e.payers.forEach(p => payerUids.add(p.uid));
+    else if (e.payerId && e.payerId !== 'multiple') payerUids.add(e.payerId);
+
+    // Recompute debts
+    const net = {};
+    newParticipants.forEach(p => { net[p.uid] = { uid: p.uid, name: p.name, bal: 0 }; });
+    if (e.payers && e.payers.length) {
+      e.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+    } else if (e.payerId && e.payerId !== 'multiple' && net[e.payerId]) {
+      net[e.payerId].bal += total;
+    }
+    newParticipants.forEach(p => { if (net[p.uid]) net[p.uid].bal -= newSelections[p.uid].myShare; });
+
+    const pos = Object.values(net).filter(x => x.bal > 0.5).sort((a,b) => b.bal - a.bal);
+    const neg = Object.values(net).filter(x => x.bal < -0.5).sort((a,b) => a.bal - b.bal);
+    const newDebts = [];
+    const pc = pos.map(x=>({...x})), nc = neg.map(x=>({...x}));
+    let pi=0, ni=0;
+    while (pi<pc.length && ni<nc.length) {
+      const amt = Math.min(pc[pi].bal, -nc[ni].bal);
+      if (amt >= 0.5) newDebts.push({ fromUid: nc[ni].uid, from: nc[ni].name, toUid: pc[pi].uid, to: pc[pi].name, amount: Math.round(amt) });
+      pc[pi].bal -= amt; nc[ni].bal += amt;
+      if (pc[pi].bal < 0.5) pi++;
+      if (-nc[ni].bal < 0.5) ni++;
+    }
+
+    await db.collection('expenses').doc(expenseId).update({
+      participants: newParticipants,
+      selections: newSelections,
+      debts: newDebts,
+      debtStatuses: {}
+    });
+
+    const snap2 = await db.collection('expenses').doc(expenseId).get();
+    activeExpenseData = { id: snap2.id, ...snap2.data() };
+    renderExpenseDetail(activeExpenseData);
+    toast(`${name} добавлен, суммы пересчитаны ✓`);
+    await addNotif(`${userDoc?.name || 'Создатель'} добавил вас в расход «${e.desc || 'Расход'}»`, 'expense').catch(()=>{});
   } catch(err) {
     toast('Ошибка: ' + err.message);
   }
