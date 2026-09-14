@@ -2931,15 +2931,28 @@ function renderExpenseDetail(e) {
       const stLabel = st==='paid' ? '<span class="chip chip-green" style="font-size:11px;">✓ Оплачено</span>'
                     : st==='declined' ? '<span class="chip chip-red" style="font-size:11px;">✕ Отказался</span>'
                     : '<span style="font-size:12px;color:var(--text3);">ожидает...</span>';
-      const manualBtn = st === 'pending'
-        ? `<button class="btn btn-sm btn-primary" style="margin-top:4px;font-size:12px;padding:4px 10px;" onclick="creatorMarkPaid('${e.id}','${d.fromUid}','${d.toUid}',${d.amount})">✓ Отметить оплату</button>`
+      // Show payment log for this person
+      const pLog = (e.paymentLog||[]).filter(l => l.fromUid === d.fromUid);
+      const paidSoFar = pLog.reduce((s,l) => s+l.amount, 0);
+      const remaining = d.amount - paidSoFar;
+      const logHtml = pLog.length ? `<div style="margin-top:4px;padding:4px 8px;background:var(--surface2);border-radius:6px;">` +
+        pLog.map(l => `<div style="font-size:12px;color:var(--text2);">📩 ${l.amount>0?'+':''}${fmt(l.amount)} ₸ — ${l.note||'оплата'} <span style="color:var(--text3);">${l.date||''}</span></div>`).join('') +
+        `</div>` : '';
+      const manualBtns = st === 'pending'
+        ? `<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-primary" style="font-size:12px;padding:4px 10px;" onclick="creatorMarkPaid('${e.id}','${d.fromUid}','${d.toUid}',${d.amount})">✓ Полная оплата</button>
+            <button class="btn btn-sm btn-ghost" style="font-size:12px;padding:4px 10px;" onclick="creatorAddPartialPayment('${e.id}','${d.fromUid}','${esc(d.from)}',${d.amount})">+ Частичная</button>
+           </div>`
+        : '';
+      const partialInfo = paidSoFar > 0 && st !== 'paid'
+        ? `<div style="font-size:12px;color:var(--success);margin-top:2px;">Оплачено: ${fmt(paidSoFar)} ₸ · Остаток: ${fmt(remaining)} ₸</div>`
         : '';
       html += `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:14px;"><b>${esc(d.from)}</b> ${stLabel}</span>
           <span style="font-size:15px;font-weight:700;color:${st==='paid'?'var(--success)':st==='declined'?'var(--text3)':'var(--text)'};">${fmt(d.amount)} ₸</span>
         </div>
-        ${manualBtn}
+        ${partialInfo}${logHtml}${manualBtns}
       </div>`;
     });
     html += '</div>';
@@ -2993,7 +3006,10 @@ function renderExpenseDetail(e) {
       <div style="flex:1;font-size:14px;${isMe?'font-weight:700;':''}">${esc(p.name)}${isMe?' (Вы)':''}${statusChip}</div>
       <div style="font-size:14px;font-weight:600;">${fmt(share)} ₸</div>
       ${iAmPayer && !isPayer && !sel.paid && !sel.declined ? `<button class="btn btn-sm btn-ghost" style="padding:4px 8px;font-size:12px;" onclick="openDiscountModal('${p.uid}','${esc(p.name)}',${share})">Скидка</button>` : ''}
-      ${(iAmPayer || e.createdBy === currentUser.uid) && e.type === 'general' && e.status !== 'settled' && !isPayer ? `<button onclick="removeParticipantFromGeneral('${e.id}','${p.uid}')" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px;" title="Удалить участника">🗑</button>` : ''}
+      ${(iAmPayer || e.createdBy === currentUser.uid) && e.type === 'general' && e.status !== 'settled' && !isPayer ? `
+        <button onclick="removeParticipantFromGeneral('${e.id}','${p.uid}')" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px;" title="Удалить участника">🗑</button>
+        <button onclick="editParticipantShare('${e.id}','${p.uid}','${esc(p.name)}',${share})" style="background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;padding:4px;" title="Изменить сумму">✏️</button>
+      ` : ''}
     </div>`;
   });
   html += `<div style="padding:10px 0;"></div></div></div>`;
@@ -3545,6 +3561,69 @@ async function addParticipantToGeneral(expenseId, uid, name, mode) {
   }
 }
 
+async function editParticipantShare(expenseId, uid, name, currentShare) {
+  const newAmtStr = prompt(`Изменить сумму для ${name}\nТекущая: ${fmt(currentShare)} ₸\nВведите новую сумму:`);
+  if (!newAmtStr) return;
+  const newAmt = parseInt(newAmtStr.replace(/\s/g,''));
+  if (!newAmt || newAmt <= 0) { toast('Введите корректную сумму'); return; }
+
+  try {
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const e = { id: snap.id, ...snap.data() };
+    const participants = e.participants || [];
+    const debtStatuses = e.debtStatuses || {};
+
+    // Update this participant's share
+    const newSel = { ...e.selections };
+    newSel[uid] = { ...(newSel[uid] || {}), myShare: newAmt };
+
+    // Recalculate debts
+    let payerUid = e.payerId;
+    if (e.payers && e.payers.length === 1) payerUid = e.payers[0].uid;
+
+    const net = {};
+    participants.forEach(p => { net[p.uid] = { uid: p.uid, name: p.name, bal: 0 }; });
+    if (e.payers && e.payers.length) {
+      e.payers.forEach(p => { if (net[p.uid]) net[p.uid].bal += p.paid; });
+    } else if (payerUid && net[payerUid]) {
+      net[payerUid].bal += e.total || 0;
+    }
+    participants.forEach(p => { if (net[p.uid]) net[p.uid].bal -= (newSel[p.uid]||{}).myShare || 0; });
+
+    const pos = Object.values(net).filter(x => x.bal > 0.5).sort((a,b) => b.bal - a.bal);
+    const neg = Object.values(net).filter(x => x.bal < -0.5).sort((a,b) => a.bal - b.bal);
+    const newDebts = [];
+    const pc = pos.map(x=>({...x})), nc = neg.map(x=>({...x}));
+    let pi=0, ni=0;
+    while (pi<pc.length && ni<nc.length) {
+      const amt = Math.min(pc[pi].bal, -nc[ni].bal);
+      if (amt >= 0.5) newDebts.push({ fromUid: nc[ni].uid, from: nc[ni].name, toUid: pc[pi].uid, to: pc[pi].name, amount: Math.round(amt) });
+      pc[pi].bal -= amt; nc[ni].bal += amt;
+      if (pc[pi].bal < 0.5) pi++;
+      if (-nc[ni].bal < 0.5) ni++;
+    }
+
+    // Keep paid statuses
+    const newDebtSt = {};
+    newDebts.forEach(d => {
+      const k = d.fromUid + '__' + d.toUid;
+      if (debtStatuses[k]) newDebtSt[k] = debtStatuses[k];
+      else if ((newSel[d.fromUid]||{}).paid) newDebtSt[k] = 'paid';
+    });
+
+    await db.collection('expenses').doc(expenseId).update({
+      selections: newSel,
+      debts: newDebts,
+      debtStatuses: newDebtSt
+    });
+
+    const snap2 = await db.collection('expenses').doc(expenseId).get();
+    activeExpenseData = { id: snap2.id, ...snap2.data() };
+    renderExpenseDetail(activeExpenseData);
+    toast(`Сумма ${name}: ${fmt(newAmt)} ₸ ✓`);
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
 async function removeParticipantFromGeneral(expenseId, uid) {
   const e = activeExpenseData;
   if (!e) return;
@@ -4059,13 +4138,53 @@ async function confirmDeleteExpense() {
   } catch(e) { toast('Ошибка: ' + e.message); }
 }
 
+async function creatorAddPartialPayment(expenseId, fromUid, fromName, totalDebt) {
+  const amtStr = prompt(`Сколько оплатил ${fromName}? (долг: ${fmt(totalDebt)} ₸)`);
+  if (!amtStr) return;
+  const amt = parseInt(amtStr.replace(/\s/g,''));
+  if (!amt || amt <= 0) { toast('Введите сумму'); return; }
+  const note = prompt('Комментарий (необязательно):') || 'частичная оплата';
+  const today = new Date().toLocaleDateString('ru-RU', {day:'2-digit',month:'short'});
+  try {
+    const logEntry = { fromUid, fromName, amount: amt, note, date: today, addedBy: currentUser.uid };
+    await db.collection('expenses').doc(expenseId).update({
+      paymentLog: firebase.firestore.FieldValue.arrayUnion(logEntry)
+    });
+    // Check if fully paid
+    const snap = await db.collection('expenses').doc(expenseId).get();
+    const data = snap.data();
+    const totalPaid = ((data.paymentLog||[]).filter(l => l.fromUid === fromUid)).reduce((s,l)=>s+l.amount, 0);
+    if (totalPaid >= totalDebt) {
+      // Mark as fully paid
+      const debts = computeDebtsFromExpense(data);
+      const d = debts.find(x => x.fromUid === fromUid);
+      if (d) {
+        const key = d.fromUid + '__' + d.toUid;
+        const upd = {};
+        upd[`debtStatuses.${key}`] = 'paid';
+        upd[`selections.${fromUid}.paid`] = true;
+        await db.collection('expenses').doc(expenseId).update(upd);
+      }
+      toast(`${fromName} полностью оплатил ✓`);
+    } else {
+      toast(`+${fmt(amt)} ₸ записано. Итого: ${fmt(totalPaid)} / ${fmt(totalDebt)} ₸`);
+    }
+    openExpenseDetail(expenseId);
+  } catch(err) { toast('Ошибка: ' + err.message); }
+}
+
 async function creatorMarkPaid(expenseId, fromUid, toUid, amount) {
   if (!confirm(`Отметить оплату ${fmt(amount)} ₸ как полученную?`)) return;
   try {
     const key = fromUid + '__' + toUid;
+    const snap0 = await db.collection('expenses').doc(expenseId).get();
+    const d0 = snap0.data();
+    const fromName = ((d0.participants||[]).find(p=>p.uid===fromUid)||{}).name || '';
+    const today = new Date().toLocaleDateString('ru-RU', {day:'2-digit',month:'short'});
     const updates = {};
     updates[`debtStatuses.${key}`] = 'paid';
     updates[`selections.${fromUid}.paid`] = true;
+    updates.paymentLog = firebase.firestore.FieldValue.arrayUnion({ fromUid, fromName, amount, note: 'полная оплата', date: today, addedBy: currentUser.uid });
     await db.collection('expenses').doc(expenseId).update(updates);
     toast('Оплата отмечена ✓');
     const snap = await db.collection('expenses').doc(expenseId).get();
