@@ -1041,6 +1041,7 @@ async function handleAuthChange(user) {
     return;
   }
 
+  if (user.isAnonymous) { auth.signOut().catch(() => {}); return; } // служебный вход для поиска — не пользователь
   currentUser = user;
   _autoLoginTried = false;
   if (currentScreen() !== 's-home') { go('s-loading'); setLoadingStatus('Загрузка...'); }
@@ -1154,6 +1155,22 @@ function phoneToEmail(phone) {
 }
 
 let _forceNewAccount = false;
+const UNIVERSAL_TEAM_CODE = '1177'; // общий код: вход в свою команду без 6-значного кода
+
+// Правила базы пускают только вошедших. Для поиска профиля по номеру
+// входим анонимно (в Firebase должен быть включён способ входа «Анонимный»).
+async function ensureLookupSession() {
+  if (auth.currentUser) return;
+  try {
+    await auth.signInAnonymously();
+  } catch(ae) {
+    if (ae && (ae.code === 'auth/operation-not-allowed' || ae.code === 'auth/admin-restricted-operation')) throw { code: 'mp/anon-off' };
+    throw ae;
+  }
+}
+function dropAnonSession() {
+  if (auth.currentUser && auth.currentUser.isAnonymous) auth.signOut().catch(() => {});
+}
 function startForcedRegister() {
   _forceNewAccount = true;
   el('reg-phone').value = v('login-phone');
@@ -1202,7 +1219,9 @@ async function doRegister() {
   try {
     // Номер уже есть в любом формате — не плодим дубли, отправляем на «Войти»
     if (!_forceNewAccount) {
-      const existing = await findUsersByPhone(phone);
+      let existing = [];
+      try { await ensureLookupSession(); existing = await findUsersByPhone(phone); }
+      catch(le) { console.warn('register precheck skipped:', le && (le.code || le.message)); }
       if (existing.length) throw { code: 'auth/email-already-in-use' };
     }
     // Создаём вход на первом свободном варианте номера
@@ -1225,6 +1244,7 @@ async function doRegister() {
     handleAuthChange(cred.user);
   } catch(e) {
     _resetInProgress = false;
+    dropAnonSession();
     if (e && e.code === 'mp/all-taken') {
       showEl('reg-error', 'Не удалось создать вход на этот номер. Напишите Асем.');
     } else if (e && e.code === 'auth/email-already-in-use') {
@@ -1251,19 +1271,36 @@ async function doLogin() {
   const btn = el('login-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Входим...'; }
   _resetInProgress = true; // handleAuthChange вызовем сами после привязки
   try {
-    // 1. Команда по коду
+    await ensureLookupSession();
+
+    // 1. Команда по коду (1177 подходит всегда — тогда берём команду из профиля)
     const tSnap = await db.collection('teams').where('code', '==', code).limit(1).get();
-    if (tSnap.empty) throw { code: 'mp/bad-team-code' };
-    const tDoc = tSnap.docs[0];
+    let tDoc = tSnap.empty ? null : tSnap.docs[0];
+    if (!tDoc && code !== UNIVERSAL_TEAM_CODE) throw { code: 'mp/bad-team-code' };
 
     // 2. Профиль по номеру (любой формат). Из дублей берём тот, что в этой команде.
     const uDocs = await findUsersByPhone(digits);
     if (!uDocs.length) throw { code: 'mp/no-user' };
-    const members = tDoc.data().members || [];
-    const uDoc = uDocs.find(d => members.some(m => m.uid === d.id))
-              || uDocs.find(d => d.data().teamId === tDoc.id)
-              || uDocs.find(d => !d.data().teamId);
+    let uDoc = null;
+    if (tDoc) {
+      const m0 = tDoc.data().members || [];
+      uDoc = uDocs.find(d => m0.some(m => m.uid === d.id))
+          || uDocs.find(d => d.data().teamId === tDoc.id)
+          || uDocs.find(d => !d.data().teamId);
+    } else {
+      // 1177: команда = та, где состоит профиль
+      for (const d of uDocs.filter(x => x.data().teamId)) {
+        const ts = await db.collection('teams').doc(d.data().teamId).get();
+        if (ts.exists && (ts.data().members || []).some(m => m.uid === d.id)) { uDoc = d; tDoc = ts; break; }
+      }
+      if (!uDoc) {
+        const d = uDocs.find(x => x.data().teamId);
+        if (d) { const ts = await db.collection('teams').doc(d.data().teamId).get(); if (ts.exists) { uDoc = d; tDoc = ts; } }
+      }
+      if (!uDoc) throw { code: 'mp/no-team' };
+    }
     if (!uDoc) throw { code: 'mp/other-team' };
+    const members = tDoc.data().members || [];
     const uData = uDoc.data();
     const uid = uDoc.id;
     const inTeam = members.some(m => m.uid === uid);
@@ -1320,7 +1357,11 @@ async function doLogin() {
     await handleAuthChange(cred.user);
   } catch(e) {
     _resetInProgress = false;
+    dropAnonSession();
     const msgs = {
+      'mp/anon-off': 'Вход по номеру пока не включён: в Firebase нужно включить «Анонимный» вход (Authentication → Sign-in method).',
+      'mp/no-team': 'Вы ещё не в команде — зарегистрируйтесь и вступите по коду команды',
+      'permission-denied': 'База не разрешает поиск по номеру (правила Firestore). Напишите Асем.',
       'mp/bad-team-code': 'Неверный код команды',
       'mp/no-user': 'Номер не найден — зарегистрируйтесь на вкладке «Регистрация»',
       'mp/other-team': 'Этот код не от вашей команды',
