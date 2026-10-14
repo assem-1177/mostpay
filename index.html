@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MostPay">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#0D9488">
 <title>MostPay</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
@@ -196,7 +201,20 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
 <!-- ═══════════════════════════════════════════ -->
 <!-- SCREEN: firebase-setup -->
 <!-- ═══════════════════════════════════════════ -->
-<div class="screen active" id="s-fb-setup">
+<div class="screen active" id="s-loading">
+  <div class="auth-hero" style="padding-top:120px;">
+    <div class="auth-logo">✂️</div>
+    <div class="auth-title">MostPay</div>
+    <div class="auth-sub" id="loading-status">Загрузка...</div>
+  </div>
+  <div class="spinner"></div>
+  <div id="loading-actions" style="display:none;padding:0 24px;">
+    <button class="btn btn-primary" onclick="retryAuthNow()" style="margin-bottom:10px;">🔄 Повторить</button>
+    <button class="btn btn-secondary" onclick="doLogout()">Выйти из аккаунта</button>
+  </div>
+</div>
+
+<div class="screen" id="s-fb-setup">
   <div class="auth-hero">
     <div class="auth-logo">🔥</div>
     <div class="auth-title">Настройка Firebase</div>
@@ -255,19 +273,23 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
       <button class="seg-btn" id="seg-register" onclick="switchAuthTab('register')">Регистрация</button>
     </div>
 
-    <!-- Login -->
+    <!-- Login: номер + код команды (пароля нет) -->
     <div id="tab-login">
       <div class="input-group">
         <label class="input-label">Телефон</label>
         <input class="input" id="login-phone" type="tel" placeholder="+7 777 000 00 00" autocomplete="tel">
       </div>
       <div class="input-group">
-        <label class="input-label">Пароль</label>
-        <input class="input" id="login-pass" type="password" placeholder="Введите пароль" autocomplete="current-password">
+        <label class="input-label">Код команды</label>
+        <input class="input" id="login-code" type="text" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" style="letter-spacing:4px;">
+        <div class="input-hint">Код знают все участники команды. Вводится один раз на этом телефоне.</div>
       </div>
-      <button class="btn btn-primary" onclick="doLogin()">Войти</button>
+      <div class="input-group" id="login-oldpass-group" style="display:none;">
+        <label class="input-label">Прежний пароль (один раз)</label>
+        <input class="input" id="login-oldpass" type="password" placeholder="Пароль, который был раньше" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" id="login-btn" onclick="doLogin()">Войти</button>
       <p id="login-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
-      <button onclick="go('s-reset-pass')" style="background:none;border:none;color:var(--text2);font-size:13px;margin-top:12px;cursor:pointer;text-decoration:underline;width:100%;">Забыли пароль?</button>
     </div>
 
     <!-- Register -->
@@ -280,11 +302,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
         <label class="input-label">Телефон</label>
         <input class="input" id="reg-phone" type="tel" placeholder="+7 777 000 00 00" autocomplete="tel">
       </div>
-      <div class="input-group">
-        <label class="input-label">Пароль</label>
-        <input class="input" id="reg-pass" type="password" placeholder="Минимум 6 символов" autocomplete="new-password">
-      </div>
-      <button class="btn btn-primary" onclick="doRegister()">Создать аккаунт</button>
+      <button class="btn btn-primary" id="reg-btn" onclick="doRegister()">Создать аккаунт</button>
+      <div class="input-hint" style="text-align:center;margin-top:8px;">Пароль не нужен — вход запомнится на этом телефоне.</div>
       <p id="reg-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
     </div>
   </div>
@@ -333,8 +352,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; h
   </div>
   <div class="content">
     <div class="input-group">
-      <label class="input-label">Код приглашения (6 цифр)</label>
-      <input class="input" id="join-code" type="text" maxlength="6" placeholder="123456" autocomplete="off" style="text-align:center;letter-spacing:6px;font-size:24px;font-weight:700;">
+      <label class="input-label">Код команды</label>
+      <input class="input" id="join-code" type="text" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" style="text-align:center;letter-spacing:6px;font-size:24px;font-weight:700;">
     </div>
     <button class="btn btn-primary" onclick="joinTeam()">Войти</button>
     <p id="join-error" style="color:var(--danger);font-size:13px;text-align:center;margin-top:12px;display:none;"></p>
@@ -959,27 +978,145 @@ function resetFirebaseConfig() {
 // ════════════════════════════════════════════════
 // AUTH STATE
 // ════════════════════════════════════════════════
+// ─── ПОСТОЯННЫЙ ВХОД ─────────────────────────────────────────────────────────
+// Телефон и пароль запоминаются на этом устройстве после входа/регистрации.
+// Если сессия Firebase пропала, приложение входит заново само.
+// Кнопка «Выйти» стирает сохранённые данные.
+let _autoLoginTried = false;
+let _authRetryTimer = null;
+let _resetInProgress = false;
+
+function lsGet(k) { try { return localStorage.getItem(k); } catch(e) { return null; } }
+function lsSet(k, val) { try { localStorage.setItem(k, val); } catch(e) {} }
+function lsDel(k) { try { localStorage.removeItem(k); } catch(e) {} }
+
+function saveAuthLocal(phone, pass) {
+  const p = String(phone || '').replace(/\D/g, '');
+  if (p && pass) lsSet('mostpay_auth', JSON.stringify({ p, w: pass }));
+}
+function loadAuthLocal() {
+  try {
+    const s = JSON.parse(lsGet('mostpay_auth') || 'null');
+    return (s && s.p && s.w) ? s : null;
+  } catch(e) { return null; }
+}
+function clearAuthLocal() { lsDel('mostpay_auth'); }
+
+function setLoadingStatus(t) { const e = el('loading-status'); if (e) e.textContent = t; }
+function showLoadingActions(show) { const e = el('loading-actions'); if (e) e.style.display = show ? '' : 'none'; }
+function retryAuthNow() {
+  _autoLoginTried = false;
+  handleAuthChange(auth ? auth.currentUser : null);
+}
+
 async function handleAuthChange(user) {
-  if (!user) { go('s-auth'); return; }
+  if (_resetInProgress) return;               // идёт сброс пароля — экран не трогаем
+  clearTimeout(_authRetryTimer);
+  showLoadingActions(false);
+
+  if (!user) {
+    const saved = loadAuthLocal();
+    if (saved && !_autoLoginTried) {
+      _autoLoginTried = true;
+      go('s-loading');
+      setLoadingStatus('Входим...');
+      try {
+        await auth.signInWithEmailAndPassword(phoneToEmail(saved.p), saved.w);
+        return; // onAuthStateChanged сам вызовет handleAuthChange(user)
+      } catch(e) {
+        if (e && e.code === 'auth/network-request-failed') {
+          setLoadingStatus('Нет связи с сервером — пробуем снова...');
+          showLoadingActions(true);
+          _authRetryTimer = setTimeout(retryAuthNow, 4000);
+          return;
+        }
+        clearAuthLocal(); // вход перенесён на другой телефон или аккаунт удалён
+        switchAuthTab('login');
+        showEl('login-error', 'Вход на этом телефоне устарел (возможно, вы вошли с другого телефона). Введите код команды, чтобы войти здесь.');
+      }
+    }
+    const lp = el('login-phone');
+    if (lp && !lp.value && saved) lp.value = saved.p;
+    go('s-auth');
+    return;
+  }
+
   currentUser = user;
+  _autoLoginTried = false;
+  if (currentScreen() !== 's-home') { go('s-loading'); setLoadingStatus('Загрузка...'); }
   try {
     const snap = await db.collection('users').doc(user.uid).get();
     if (!snap.exists) { go('s-auth'); return; }
     userDoc = snap.data();
+
+    // teamId пустой, но человек всё ещё в составе команды — восстанавливаем без кода
+    if (!userDoc.teamId) {
+      const lastTeam = lsGet('mostpay_team');
+      if (lastTeam) {
+        try {
+          const ts = await db.collection('teams').doc(lastTeam).get();
+          if (ts.exists && (ts.data().members || []).some(m => m.uid === user.uid)) {
+            await db.collection('users').doc(user.uid).update({ teamId: lastTeam });
+            userDoc.teamId = lastTeam;
+          }
+        } catch(te) { console.warn('team restore:', te.message); }
+      }
+    }
     if (!userDoc.teamId) { go('s-team-setup'); return; }
+
     // Load team
     const teamSnap = await db.collection('teams').doc(userDoc.teamId).get();
     if (!teamSnap.exists) { go('s-team-setup'); return; }
     teamDoc = { id: teamSnap.id, ...teamSnap.data() };
     teamMembers = teamDoc.members || [];
+    lsSet('mostpay_team', teamDoc.id);
     startHomeListeners();
     updateProfileUI();
     go('s-home');
+    setTimeout(maybeShowInstallHint, 2500);
     // Request push notification permission (silent if already granted)
     setTimeout(requestNotifPermission, 1500);
     // Check for app updates in background
     setTimeout(checkForAppUpdate, 3000);
-  } catch(e) { console.error(e); go('s-auth'); }
+  } catch(e) {
+    // Сбой сети — НЕ выкидываем на экран входа, сессия жива. Повторяем.
+    console.error(e);
+    go('s-loading');
+    setLoadingStatus('Нет связи с сервером — пробуем снова...');
+    showLoadingActions(true);
+    _authRetryTimer = setTimeout(retryAuthNow, 4000);
+  }
+}
+
+// ─── ПОДСКАЗКА «ДОБАВИТЬ НА ГЛАВНЫЙ ЭКРАН» ──────────────────────────────────
+function isStandaloneApp() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+}
+function maybeShowInstallHint() {
+  if (isStandaloneApp()) return;
+  if (lsGet('mostpay_install_hint') === 'hidden') return;
+  if (el('install-hint') || currentScreen() !== 's-home') return;
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const steps = isIOS
+    ? 'В <b>Safari</b> нажмите «Поделиться» <b>⬆</b> → <b>«На экран „Домой“»</b>. Потом откройте MostPay с иконки и один раз войдите.'
+    : 'В <b>Chrome</b> откройте меню <b>⋮</b> → <b>«Добавить на главный экран»</b>.';
+  const box = document.createElement('div');
+  box.id = 'install-hint';
+  box.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:96px;width:92%;max-width:360px;' +
+    'background:var(--surface);color:var(--text);border:2px solid var(--accent);border-radius:16px;' +
+    'box-shadow:0 8px 24px rgba(0,0,0,.2);padding:14px 16px;z-index:150;font-size:13px;line-height:1.5;';
+  box.innerHTML =
+    '<div style="font-size:15px;font-weight:700;margin-bottom:6px;">📲 Добавьте MostPay на главный экран</div>' +
+    '<div style="color:var(--text2);margin-bottom:6px;">Так вход сохранится и не придётся снова вводить пароль.</div>' +
+    '<div style="margin-bottom:6px;">' + steps + '</div>' +
+    '<div style="color:var(--text3);font-size:12px;margin-bottom:10px;">Если открыли ссылку из WhatsApp или Telegram — сначала откройте её в ' + (isIOS ? 'Safari' : 'Chrome') + '.</div>' +
+    '<button class="btn btn-primary btn-sm" style="width:100%;" onclick="hideInstallHint()">Понятно</button>';
+  document.body.appendChild(box);
+}
+function hideInstallHint() {
+  lsSet('mostpay_install_hint', 'hidden');
+  const b = el('install-hint'); if (b) b.remove();
 }
 
 async function checkForAppUpdate() {
@@ -1016,38 +1153,204 @@ function phoneToEmail(phone) {
   return phone.replace(/\D/g, '') + '@splitcheck.app';
 }
 
+let _forceNewAccount = false;
+function startForcedRegister() {
+  _forceNewAccount = true;
+  el('reg-phone').value = v('login-phone');
+  hideEl('login-error');
+  switchAuthTab('register');
+  showEl('reg-error', 'Введите имя и нажмите «Создать аккаунт». После этого войдите в команду по коду.');
+}
+
+// Случайный «пароль устройства» — человек его не видит и не вводит
+function genDeviceSecret() {
+  const a = new Uint8Array(18);
+  (window.crypto || window.msCrypto).getRandomValues(a);
+  return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Один и тот же номер люди вводят как 8701…, 7701…, +7 701…, 701… —
+// раньше это создавало РАЗНЫЕ аккаунты. Здесь все варианты номера.
+function phoneVariantDigits(digits) {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (d.length === 11 && (d[0] === '7' || d[0] === '8')) { const c = d.slice(1); return ['7' + c, '8' + c, c]; }
+  if (d.length === 10) return ['7' + d, '8' + d, d];
+  return d ? [d] : [];
+}
+
+// Все профили users с этим номером в любом формате (могут быть дубли)
+async function findUsersByPhone(digits) {
+  const values = [];
+  phoneVariantDigits(digits).forEach(x => { values.push(x, '+' + x); });
+  const found = new Map();
+  for (const val of [...new Set(values)]) {
+    const s = await db.collection('users').where('phone', '==', val).limit(10).get();
+    s.docs.forEach(d => found.set(d.id, d));
+  }
+  return [...found.values()];
+}
+
 async function doRegister() {
   const name = v('reg-name').trim();
   const phone = v('reg-phone').trim();
-  const pass = v('reg-pass');
-  if (!name || !phone || !pass) { showEl('reg-error','Заполните все поля'); return; }
-  if (pass.length < 6) { showEl('reg-error','Пароль минимум 6 символов'); return; }
+  if (!name || !phone) { showEl('reg-error','Введите имя и телефон'); return; }
+  if (phone.replace(/\D/g,'').length < 10) { showEl('reg-error','Проверьте номер телефона'); return; }
+  const pass = genDeviceSecret();
   hideEl('reg-error');
+  const btn = el('reg-btn'); if (btn) btn.disabled = true;
+  _resetInProgress = true; // профиль загрузим сами, когда он будет записан
   try {
-    const cred = await auth.createUserWithEmailAndPassword(phoneToEmail(phone), pass);
-    const phoneNorm = phone.replace(/\D/g,'');
+    // Номер уже есть в любом формате — не плодим дубли, отправляем на «Войти»
+    if (!_forceNewAccount) {
+      const existing = await findUsersByPhone(phone);
+      if (existing.length) throw { code: 'auth/email-already-in-use' };
+    }
+    // Создаём вход на первом свободном варианте номера
+    let cred = null, phoneNorm = '';
+    for (const variant of phoneVariantDigits(phone)) {
+      try {
+        cred = await auth.createUserWithEmailAndPassword(phoneToEmail(variant), pass);
+        phoneNorm = variant;
+        break;
+      } catch(ce) {
+        if (!ce || ce.code !== 'auth/email-already-in-use') throw ce;
+      }
+    }
+    if (!cred) throw { code: _forceNewAccount ? 'mp/all-taken' : 'auth/email-already-in-use' };
+    _forceNewAccount = false;
     await db.collection('users').doc(cred.user.uid).set({ name, phone: phoneNorm, _pw: pass, teamId: null, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-    // handleAuthChange will fire automatically
+    saveAuthLocal(phoneNorm, pass);
+    // Профиль уже записан — загружаем его
+    _resetInProgress = false;
+    handleAuthChange(cred.user);
   } catch(e) {
-    showEl('reg-error', firebaseErrMsg(e));
+    _resetInProgress = false;
+    if (e && e.code === 'mp/all-taken') {
+      showEl('reg-error', 'Не удалось создать вход на этот номер. Напишите Асем.');
+    } else if (e && e.code === 'auth/email-already-in-use') {
+      switchAuthTab('login');
+      el('login-phone').value = phone;
+      showEl('login-error', 'Этот номер уже зарегистрирован — введите код команды и нажмите «Войти».');
+    } else {
+      showEl('reg-error', firebaseErrMsg(e));
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
+// Вход по номеру + коду команды. Вход привязывается к ЭТОМУ телефону:
+// пароль меняется на новый случайный, старый телефон теряет вход.
 async function doLogin() {
   const phone = v('login-phone').trim();
-  const pass = v('login-pass');
-  if (!phone || !pass) { showEl('login-error','Заполните все поля'); return; }
+  const code  = v('login-code').trim();
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10) { showEl('login-error','Введите номер телефона'); return; }
+  if (!/^\d{4,6}$/.test(code)) { showEl('login-error','Введите код команды'); return; }
   hideEl('login-error');
+  const btn = el('login-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Входим...'; }
+  _resetInProgress = true; // handleAuthChange вызовем сами после привязки
   try {
-    const cred = await auth.signInWithEmailAndPassword(phoneToEmail(phone), pass);
-    // Сохраняем пароль и нормализуем телефон в Firestore при каждом входе
-    db.collection('users').doc(cred.user.uid).update({ _pw: pass, phone: phone.replace(/\D/g,'') }).catch(() => {});
+    // 1. Команда по коду
+    const tSnap = await db.collection('teams').where('code', '==', code).limit(1).get();
+    if (tSnap.empty) throw { code: 'mp/bad-team-code' };
+    const tDoc = tSnap.docs[0];
+
+    // 2. Профиль по номеру (любой формат). Из дублей берём тот, что в этой команде.
+    const uDocs = await findUsersByPhone(digits);
+    if (!uDocs.length) throw { code: 'mp/no-user' };
+    const members = tDoc.data().members || [];
+    const uDoc = uDocs.find(d => members.some(m => m.uid === d.id))
+              || uDocs.find(d => d.data().teamId === tDoc.id)
+              || uDocs.find(d => !d.data().teamId);
+    if (!uDoc) throw { code: 'mp/other-team' };
+    const uData = uDoc.data();
+    const uid = uDoc.id;
+    const inTeam = members.some(m => m.uid === uid);
+
+    // 3. Вход паролем аккаунта (старые аккаунты без _pw — прежний пароль один раз).
+    //    Пробуем все форматы номера, пока не найдём вход именно этого профиля.
+    const oldPw = v('login-oldpass') || uData._pw;
+    if (!oldPw) {
+      el('login-oldpass-group').style.display = '';
+      throw { code: 'mp/need-oldpass' };
+    }
+    const emails = [...new Set([String(uData.phone || '').replace(/\D/g, ''), ...phoneVariantDigits(digits)]
+      .filter(Boolean).map(x => phoneToEmail(x)))];
+    let cred = null, usedEmail = '', lastErr = null;
+    for (const em of emails) {
+      try {
+        const c = await auth.signInWithEmailAndPassword(em, oldPw);
+        if (c.user.uid !== uid) { await auth.signOut(); continue; } // чужой дубль
+        cred = c; usedEmail = em; break;
+      } catch(se) {
+        lastErr = se;
+        if (se && (se.code === 'auth/network-request-failed' || se.code === 'auth/too-many-requests')) throw se;
+      }
+    }
+    if (!cred) throw (lastErr || { code: 'auth/invalid-credential' });
+    const email = usedEmail;
+
+    // 4. Привязка к этому телефону: новый случайный пароль
+    let finalPw = oldPw;
+    try {
+      const newPw = genDeviceSecret();
+      await cred.user.updatePassword(newPw);
+      try {
+        await uDoc.ref.update({ _pw: newPw });
+        finalPw = newPw;
+      } catch(fe) {
+        // не удалось записать в базу — возвращаем прежний пароль, чтобы не потерять доступ
+        try { await cred.user.updatePassword(oldPw); } catch(e2) {}
+      }
+    } catch(pe) { console.warn('rebind:', pe && pe.message); }
+    saveAuthLocal(email.split('@')[0], finalPw);
+
+    // 5. Если человек ещё ни в какой команде — добавляем в команду по коду
+    if (!inTeam && !uData.teamId) {
+      await tDoc.ref.update({ members: firebase.firestore.FieldValue.arrayUnion({ uid, name: uData.name, phone: uData.phone }) });
+      await uDoc.ref.update({ teamId: tDoc.id });
+    }
+    lsSet('mostpay_team', tDoc.id);
+    el('login-oldpass').value = '';
+    el('login-oldpass-group').style.display = 'none';
+
+    _resetInProgress = false;
+    _autoLoginTried = false;
+    await handleAuthChange(cred.user);
   } catch(e) {
-    showEl('login-error', firebaseErrMsg(e));
+    _resetInProgress = false;
+    const msgs = {
+      'mp/bad-team-code': 'Неверный код команды',
+      'mp/no-user': 'Номер не найден — зарегистрируйтесь на вкладке «Регистрация»',
+      'mp/other-team': 'Этот код не от вашей команды',
+      'mp/need-oldpass': 'Аккаунт старый: один раз введите прежний пароль и нажмите «Войти»',
+    };
+    let msg = msgs[e && e.code];
+    let broken = false;
+    if (!msg && e && ['auth/wrong-password','auth/invalid-credential','auth/invalid-login-credentials','auth/user-not-found'].includes(e.code)) {
+      broken = true;
+      el('login-oldpass-group').style.display = '';
+      msg = el('login-oldpass').value
+        ? 'Прежний пароль не подошёл.'
+        : 'Не удалось войти в этот аккаунт. Если помните прежний пароль — введите его выше.';
+      if (auth.currentUser) auth.signOut().catch(() => {});
+    }
+    showEl('login-error', msg || firebaseErrMsg(e));
+    if (broken) {
+      el('login-error').insertAdjacentHTML('beforeend',
+        '<br><button onclick="startForcedRegister()" style="margin-top:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;">Создать новый вход на этот номер</button>' +
+        '<div style="color:var(--text3);font-size:12px;margin-top:6px;">Старые долги останутся на старом аккаунте — Асем сможет их перенести.</div>');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Войти'; }
   }
 }
 
 async function doLogout() {
+  clearTimeout(_authRetryTimer);
+  clearAuthLocal();          // явный выход — забываем сохранённый вход
+  _autoLoginTried = true;    // и не входим автоматически
   unsubscribers.forEach(u => u());
   unsubscribers = [];
   currentUser = null; userDoc = null; teamDoc = null; teamMembers = [];
@@ -1071,6 +1374,7 @@ async function doResetPassword() {
   if (pass !== pass2)  { errEl.textContent = 'Пароли не совпадают';        errEl.style.display=''; return; }
 
   try {
+    _resetInProgress = true;
     // 1. Проверяем код команды
     const teamsSnap = await db.collection('teams').where('code', '==', code).limit(1).get();
     if (teamsSnap.empty) { errEl.textContent = 'Неверный код команды'; errEl.style.display=''; return; }
@@ -1106,13 +1410,20 @@ async function doResetPassword() {
     // 6. Выходим — пусть войдёт заново с новым паролем
     await auth.signOut();
 
-    okEl.textContent = '✓ Пароль изменён! Войдите с новым паролем.';
+    okEl.textContent = '✓ Пароль изменён! Входим...';
     okEl.style.display = '';
 
-    // Через 2 сек переходим на экран входа
-    setTimeout(() => go('s-auth'), 2000);
+    // Запоминаем новый пароль и входим сами
+    saveAuthLocal(digits, pass);
+    _resetInProgress = false;
+    _autoLoginTried = false;
+    setTimeout(() => {
+      if (auth.currentUser) return; // уже вошли автоматически
+      auth.signInWithEmailAndPassword(email, pass).catch(() => go('s-auth'));
+    }, 1500);
 
   } catch(err) {
+    _resetInProgress = false;
     errEl.textContent = firebaseErrMsg(err);
     errEl.style.display = '';
   }
@@ -1151,6 +1462,7 @@ async function createTeam() {
     });
     await db.collection('users').doc(currentUser.uid).update({ teamId: ref.id });
     userDoc.teamId = ref.id;
+    lsSet('mostpay_team', ref.id);
     teamDoc = { id: ref.id, name, code, members: [member] };
     teamMembers = [member];
     startHomeListeners();
@@ -1161,7 +1473,7 @@ async function createTeam() {
 
 async function joinTeam() {
   const code = v('join-code').trim();
-  if (code.length < 6) { showEl('join-error','Введите 6-значный код'); return; }
+  if (!/^\d{4,6}$/.test(code)) { showEl('join-error','Введите код команды'); return; }
   hideEl('join-error');
   try {
     const snap = await db.collection('teams').where('code','==',code).limit(1).get();
@@ -1175,6 +1487,7 @@ async function joinTeam() {
     }
     await db.collection('users').doc(currentUser.uid).update({ teamId: snap.docs[0].id });
     userDoc.teamId = snap.docs[0].id;
+    lsSet('mostpay_team', snap.docs[0].id);
     teamDoc = { id: snap.docs[0].id, ...tData, members: [...(tData.members||[]), ...(exists?[]:[member])] };
     teamMembers = teamDoc.members;
     startHomeListeners();
@@ -4513,6 +4826,9 @@ function hideEl(id) { const e=el(id); if(e) e.style.display='none'; }
     console.error('Firebase boot error:', e);
     go('s-fb-setup');
   }
+
+  // Просим браузер не очищать хранилище (сохранённый вход)
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch(e) {}
 
   // OneSignal инициализируется позже через requestNotifPermission() после логина
 
